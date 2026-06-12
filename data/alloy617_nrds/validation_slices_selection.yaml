@@ -1,0 +1,18 @@
+selection_rule: seeded_random_without_replacement_from_complete_multielement_dat_slices
+resource_check:
+  total_common_slices: 265
+  element_channels: [Al, Cl, Co, Cr, F, Fe, Mg, Mn, Mo, Na, Ni, O, Si, Ti, W]
+excluded_development_slices: ["006"]
+selection_seed: 20260526
+selected_validation_slices: ["063", "183", "224"]
+protocol_frozen_before_measurement_values_loaded:
+  roi_search_seed: 0
+  pilot_rois: 4
+  bayesian_rois: 8
+  confirm_neighbors: true
+  neighbor_anchors: 1
+  reference_equivalence_fraction: 0.99
+notes:
+  - Selection used resource availability and slice identifiers only.
+  - Slice 006 was used during method development and is excluded from validation summaries.
+  - Only selected native DAT element maps are downloaded for this initial validation cohort.

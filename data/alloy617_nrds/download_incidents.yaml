@@ -1,0 +1,14 @@
+incidents:
+  - slice: "050"
+    channel: Cl
+    official_url: https://nrds.inl.gov/dataset/a617_test6-7_ebsd-eds_cl/resource/dd3bec7d-bc67-460c-a9fe-e6c1b3bd9734/download/ebsd-sliceimage-050_0_clk.dat
+    first_download:
+      retained_path: data/alloy617_nrds/eds/slice_050/dat/ebsd-sliceimage-050_0_clk.truncated_download.dat
+      bytes: 179801
+      sha256: EED4BAECC1D1F1FDEC8C05A13B385224C7798079D999519B7D7F1AE995D86576
+      status: rejected_incomplete_binary_payload
+    retry_download:
+      manifest_path: data/alloy617_nrds/eds/slice_050/dat/ebsd-sliceimage-050_0_clk.dat
+      bytes: 1049724
+      sha256: 4D025552520E5A6BE9CEC9F72BA1D71160D5FAF04F04E90999458EF0F63D9F5E
+      status: valid_header_and_payload
