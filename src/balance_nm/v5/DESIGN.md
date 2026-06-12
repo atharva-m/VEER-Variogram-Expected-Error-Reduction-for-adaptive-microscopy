@@ -488,6 +488,27 @@ profile above attached as a mandatory caveat. Deployment-style claims should
 be phrased as "improves expected morphology error by ~14-17% at equal dose,
 with per-slice variance" — not as a per-slice dominance claim.
 
+### Large-loss inspection (22 slices with final delta > +0.10)
+
+- **15 sustained / 4 volatility / 3 intermediate.** Four losses are pure
+  final-reveal metric noise (slice 256: final +0.42 but trailing -0.107 — a
+  *win* on the robust endpoint); fifteen are genuine sustained failures.
+- **Losses are the easy-slice tax.** Baseline median composite on loss
+  slices is 0.018 vs 0.215 on large-win slices: the method wins where
+  coverage fails and loses where coverage was already sufficient.
+- **The movement gate never fired on them.** Mean front movement on the
+  sustained losses is 0.08-0.24 — 8 to 24 times the 0.01 gate threshold —
+  keeping `kappa_eff` at 2.9-5.0 throughout. These are not 106/107-style
+  static lock-ins but the opposite: the predicted front *churns* (the GMM
+  segmentation flips reveal-to-reveal under focused sampling), and the
+  monotone gate reads churn as a front being refined.
+- **Movement alone cannot separate wins from losses** — large wins also
+  churn (slice 047: -0.234 with movement 0.26). A band-pass gate (shut
+  kappa off above a churn ceiling) is the natural v5.3 hypothesis, but it
+  cannot be honestly validated within this stack: **no untouched data
+  remains.** Further iteration requires a new specimen/stack or strict
+  nested cross-validation from scratch.
+
 ## 12. Known approximations and limitations
 
 - `gamma(d_p)` treats nearest-observation error as a pure function of
