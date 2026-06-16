@@ -509,7 +509,49 @@ with per-slice variance" — not as a per-slice dominance claim.
   remains.** Further iteration requires a new specimen/stack or strict
   nested cross-validation from scratch.
 
-## 12. Known approximations and limitations
+## 12. Routing analysis: is the 8% oracle reachable? (2026-06-16)
+
+The oracle best-of-two (perfect per-slice choice between `uncertainty_lookahead`
+and gated VEER) scores 0.086 — a further 24% below always-VEER. Reaching it
+needs a signal that predicts, per slice, which algorithm wins. We tested
+whether one exists (read-only analysis; `results/_route_analysis/`).
+
+**Pre-registered structural descriptors**, three complexity flavors computed
+from the frozen reference: positional roughness (`depth_tv`, Nyquist-relative
+`depth_hf_frac`), depth-distribution spread (`depth_std`, `d95-d05`, `d95`),
+topological fragmentation (`component_count`, `front_run_count`,
+`small_component_count`). Target: per-slice margin = error(baseline) -
+error(VEER).
+
+Result — **the simple/complex hypothesis is falsified as a routing axis:**
+
+| Question | Best descriptor | Strength |
+|---|---|---|
+| Which algorithm wins (margin) | depth_hf_frac | AUC 0.56, rho 0.13 (~1% of variance) |
+| How hard the slice is (mean error) | depth_std / d95 | rho 0.40 (~16% of variance) |
+
+The descriptors are *meaningful* — they capture slice difficulty (both
+algorithms do worse on rough, deep-front slices, rho ~ 0.40). They simply do
+not capture *which algorithm wins*. Corroborating nulls: iteration-1 pick
+distance vs margin (Spearman -0.02), VEER front-churn vs margin (AUC 0.47,
+non-monotone).
+
+Why routing fails: the two algorithms' per-slice errors correlate only 0.35
+— they decouple substantially — but that decoupling is not organized along any
+structural or behavioral axis tested. The earlier "easy slices lose" pattern
+was a statistical artifact (baseline error correlates +0.53 with the margin
+only because the margin contains baseline error), not a deployable signal.
+The complementarity that makes the 0.086 oracle exist appears substantially
+irreducible, consistent with the front-extraction volatility documented in
+section 10.
+
+**Conclusion:** the 8% ceiling is not reachable by per-slice routing on any
+observed signal. The defensible result remains always-on gated VEER at
++14-17% mean improvement. A different specimen could overturn this (one
+dataset, pre-specified univariate descriptors); a multivariate router on 265
+correlated serial sections would not be trustworthy regardless.
+
+## 13. Known approximations and limitations
 
 - `gamma(d_p)` treats nearest-observation error as a pure function of
   distance to the single nearest sample; it ignores screening from multiple
