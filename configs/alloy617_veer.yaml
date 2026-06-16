@@ -37,10 +37,6 @@ instrument:
 budget:
   max_scan_time_s: 120.0
   max_dose_proxy: 100.0
-model:
-  length_scale_fraction: 0.10
-  max_training_points: 512
-  max_observations: 1500
 dataset:
   mode: replay
   adapter: binary_element_map
@@ -85,42 +81,39 @@ morphology:
   smoothing_sigma_px: 1.0
   minimum_altered_fraction: 0.005
   max_state_fit_points: 12000
-acquisition_v4:
+acquisition:
   roi_size_px: [64, 64]
   pilot_rois: 4
   total_rois: 17
-  historical_adaptive_rois_before_anchor: 8
   front_weight: 0.50
   penetration_d95_weight: 0.50
   rmse_regression_limit_fraction: 0.02
   excluded_channels: [CPS]
-  oracle_sample_slices: 30
-  calibrator:
-    enabled: true
-    shortlist_ratios: [0.70, 0.80, 0.90]
-    learned_weights: [0.25, 0.50, 0.75]
-    max_training_slices: 8
-    max_validation_slices: 4
-    max_training_states_per_slice: 4
-    max_candidates_per_state: 8
-    random_state: 0
-  neural:
-    enabled: true
-    ensemble_size: 3
-    depth: 3
-    base_channels: 24
-    dropout: 0.10
-    epochs: 40
-    early_stop_patience: 5
-    batch_size: 2
-    training_masks_per_slice: 4
-    max_training_slices: 24
-    learning_rate: 0.001
   folds:
     outer_test_ranges: [[1, 53], [54, 106], [107, 159], [160, 212], [213, 265]]
     outer_guard_slices: 3
     validation_slices: 4
     validation_guard_slices: 2
+variogram:
+  residual_filter_sigma_px: 1.0
+  latent_components: 4
+  kernel_catalog:
+    - [0.025, 0.025]
+    - [0.050, 0.050]
+    - [0.075, 0.075]
+    - [0.050, 0.100]
+    - [0.100, 0.050]
+  temper_reference_subtiles: 64
+  robust_iqr_epsilon: 0.000001
+  scaled_feature_clip: 8.0
+  alpha_floor: 0.000001
+  jitter: 0.00000001
+  front_bandwidth_nm: 1600.0
+  front_gate_movement_fraction: 0.01
+  nested_length_scale_grid: [0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3]
+  nested_bin_edges: [0.01, 0.02, 0.035, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.45, 0.7, 1.0]
+  nested_minimum_bin_pairs: 5
+  trailing_window_iterations: 6
 objectives:
   weights: {gradient: 1.0}
 quality:
@@ -128,9 +121,6 @@ quality:
   maximum_relative_count_error: 1.0
   penalty_strength: 0.0
   hard_exclude_invalid: true
-acquisition:
-  maximum_follow_on_actions: 13
-  minimum_utility: 0.0
 benchmark:
   seeds: 1
   policies: [uncertainty]

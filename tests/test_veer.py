@@ -10,12 +10,11 @@ from typer.testing import CliRunner
 from balance_nm.cli import app
 from balance_nm.domain import RunConfig
 from balance_nm.io import write_config
-from balance_nm.v3_morphology import normalized_reconstruction_rmse, reconstruct_from_observed_mask
-from balance_nm.v3_validation import build_v3_roi_catalog
-from balance_nm.v4_bayesian_pareto import ParetoSubtileObservation
-from balance_nm.v4_validation import _distance_pixels, lookahead_coverage_gain
-from balance_nm.v5 import (
+from balance_nm import (
     NestedVariogramFit,
+    SubtileObservation,
+    build_roi_catalog,
+    distance_pixels,
     fit_nested_variogram,
     fit_variogram_posterior,
     front_movement_fraction,
@@ -24,10 +23,13 @@ from balance_nm.v5 import (
     gamma_nested,
     kernel_distance_field,
     kernel_rectangle_distance,
+    lookahead_coverage_gain,
     nested_veer_select_candidate,
+    normalized_reconstruction_rmse,
     parse_nested_policy,
     parse_veer_policy,
-    run_v5_veer_slice_replay,
+    reconstruct_from_observed_mask,
+    run_veer_slice_replay,
 )
 
 
@@ -90,12 +92,11 @@ def _config(small_config, source: Path, *, total_rois: int = 4) -> RunConfig:
         "smoothing_sigma_px": 0.0,
         "minimum_altered_fraction": 0.0,
     }
-    raw["acquisition_v4"] = {
+    raw["acquisition"] = {
         "roi_size_px": [8, 8],
         "pilot_rois": 2,
         "total_rois": total_rois,
         "excluded_channels": ["CPS"],
-        "oracle_sample_slices": 1,
         "folds": {
             "outer_test_ranges": [[1, 1]],
             "outer_guard_slices": 0,
@@ -103,7 +104,7 @@ def _config(small_config, source: Path, *, total_rois: int = 4) -> RunConfig:
             "validation_guard_slices": 0,
         },
     }
-    raw["acquisition_v5"] = {
+    raw["variogram"] = {
         "latent_components": 2,
         "kernel_catalog": [[0.1, 0.1], [0.2, 0.2]],
         "temper_reference_subtiles": 16,
@@ -113,7 +114,7 @@ def _config(small_config, source: Path, *, total_rois: int = 4) -> RunConfig:
     return RunConfig.model_validate(raw)
 
 
-def _observations(scale: float = 1.0) -> list[ParetoSubtileObservation]:
+def _observations(scale: float = 1.0) -> list[SubtileObservation]:
     rng = np.random.default_rng(7)
     nodes = []
     for index in range(24):
@@ -124,7 +125,7 @@ def _observations(scale: float = 1.0) -> list[ParetoSubtileObservation]:
         )
         feature = (base + 0.05 * rng.standard_normal(2)) * scale
         nodes.append(
-            ParetoSubtileObservation(
+            SubtileObservation(
                 roi_id=f"r{index // 4}",
                 subtile_id=f"s{index}",
                 center_x_nm=center_x,
@@ -165,7 +166,7 @@ def test_kernel_rectangle_distance_matches_anisotropic_edt(small_config, tmp_pat
     _write_dense_source(source, _signal())
     config = _config(small_config, source)
     x, y = _grid()
-    catalog = build_v3_roi_catalog(x, y, (8, 8))
+    catalog = build_roi_catalog(x, y, (8, 8))
     roi = catalog.iloc[4]
     mask = np.zeros((24, 24), dtype=bool)
     mask[int(roi["row0"]) : int(roi["row1"]), int(roi["column0"]) : int(roi["column1"])] = True
@@ -201,7 +202,7 @@ def test_veer_policies_share_pilots_budget_and_shared_evaluator(small_config, tm
     x, y = _grid()
     policies = ["uncertainty_lookahead", "variogram_eer_4x4_mean_kappa0"]
     results = {
-        policy: run_v5_veer_slice_replay(
+        policy: run_veer_slice_replay(
             config, signal, x, y, ["Cr", "Ni"], "001", policy, seed=3
         )
         for policy in policies
@@ -211,7 +212,7 @@ def test_veer_policies_share_pilots_budget_and_shared_evaluator(small_config, tm
         for result in results.values()
     ]
     assert pilots[0] == pilots[1]
-    assert all(len(result.metrics) == config.acquisition_v4.total_rois for result in results.values())
+    assert all(len(result.metrics) == config.acquisition.total_rois for result in results.values())
     veer = results["variogram_eer_4x4_mean_kappa0"]
     assert not veer.variogram_trace.empty
     weight_sums = veer.variogram_trace.groupby("iteration")["weight"].sum()
@@ -219,7 +220,7 @@ def test_veer_policies_share_pilots_budget_and_shared_evaluator(small_config, tm
     columns = set(veer.candidate_trace.columns)
     assert {"expected_error_reduction", "eer_per_cost", "selection_utility", "selected"} <= columns
     assert (veer.candidate_trace["expected_error_reduction"] >= 0.0).all()
-    catalog = build_v3_roi_catalog(x, y, (8, 8)).set_index("roi_id")
+    catalog = build_roi_catalog(x, y, (8, 8)).set_index("roi_id")
     for result in results.values():
         mask = np.zeros((24, 24), dtype=bool)
         for roi_id in result.metrics["roi_id"]:
@@ -248,7 +249,7 @@ def test_nested_fit_recovers_unbounded_growth_on_brownian_features(small_config,
     rng = np.random.default_rng(0)
     walk = np.cumsum(rng.standard_normal((64, 2)), axis=0)
     nodes = [
-        ParetoSubtileObservation(
+        SubtileObservation(
             roi_id=f"r{i // 16}",
             subtile_id=f"s{i}",
             center_x_nm=float(i * 25.0),
@@ -276,7 +277,7 @@ def test_nested_linear_only_fit_matches_baseline_selection(small_config, tmp_pat
     _write_dense_source(source, _signal())
     config = _config(small_config, source)
     x, y = _grid()
-    catalog = build_v3_roi_catalog(x, y, (8, 8))
+    catalog = build_roi_catalog(x, y, (8, 8))
     linear_fit = NestedVariogramFit(
         nugget=0.0,
         matern_amplitude=0.0,
@@ -297,7 +298,7 @@ def test_nested_linear_only_fit_matches_baseline_selection(small_config, tmp_pat
         queried.add(str(roi["roi_id"]))
     for _ in range(3):
         candidates = catalog[~catalog["roi_id"].isin(queried)].copy()
-        distance = _distance_pixels(mask)
+        distance = distance_pixels(mask)
         candidates["gain"] = [
             lookahead_coverage_gain(distance, roi) for _, roi in candidates.iterrows()
         ]
@@ -342,7 +343,7 @@ def test_nested_policies_share_pilots_budget_and_traces(small_config, tmp_path: 
     x, y = _grid()
     policies = ["uncertainty_lookahead", "nested_veer_4x4_mean_kappa5"]
     results = {
-        policy: run_v5_veer_slice_replay(
+        policy: run_veer_slice_replay(
             config, signal, x, y, ["Cr", "Ni"], "001", policy, seed=3
         )
         for policy in policies
@@ -352,7 +353,7 @@ def test_nested_policies_share_pilots_budget_and_traces(small_config, tmp_path: 
         for result in results.values()
     ]
     assert pilots[0] == pilots[1]
-    assert all(len(result.metrics) == config.acquisition_v4.total_rois for result in results.values())
+    assert all(len(result.metrics) == config.acquisition.total_rois for result in results.values())
     nested = results["nested_veer_4x4_mean_kappa5"]
     assert not nested.variogram_trace.empty
     assert set(nested.variogram_trace["kernel"]) == {"nested_wls"}
@@ -360,7 +361,7 @@ def test_nested_policies_share_pilots_budget_and_traces(small_config, tmp_path: 
     columns = set(nested.candidate_trace.columns)
     assert {"expected_error_reduction", "nested_linear_slope", "front_kappa", "selected"} <= columns
     assert (nested.candidate_trace["expected_error_reduction"] >= 0.0).all()
-    catalog = build_v3_roi_catalog(x, y, (8, 8)).set_index("roi_id")
+    catalog = build_roi_catalog(x, y, (8, 8)).set_index("roi_id")
     for result in results.values():
         mask = np.zeros((24, 24), dtype=bool)
         for roi_id in result.metrics["roi_id"]:
@@ -379,7 +380,7 @@ def test_pilots_pair_across_policies_and_vary_across_slices(small_config, tmp_pa
     x, y = _grid()
 
     def pilots(slice_id: str, policy: str) -> tuple[str, ...]:
-        result = run_v5_veer_slice_replay(
+        result = run_veer_slice_replay(
             config, signal, x, y, ["Cr", "Ni"], slice_id, policy, seed=3
         )
         return tuple(result.metrics[result.metrics["stage"] == "random_pilot"]["roi_id"])
@@ -407,7 +408,7 @@ def test_gated_replay_shuts_off_front_weighting_when_front_is_static(small_confi
     _write_dense_source(source, signal)
     config = _config(small_config, source, total_rois=6)
     x, y = _grid()
-    result = run_v5_veer_slice_replay(
+    result = run_veer_slice_replay(
         config, signal, x, y, ["Cr", "Ni"], "001", "gated_veer_4x4_mean_kappa5", seed=3
     )
     assert len(result.metrics) == 6
@@ -423,7 +424,7 @@ def test_gated_replay_shuts_off_front_weighting_when_front_is_static(small_confi
 
 
 def test_parallel_workers_produce_identical_results_to_serial(small_config, tmp_path: Path):
-    from balance_nm.v5 import run_v5_veer_stack_validation
+    from balance_nm import run_veer_stack_validation
 
     source = tmp_path / "dense.zarr"
     _write_dense_source(source, _signal())
@@ -439,10 +440,10 @@ def test_parallel_workers_produce_identical_results_to_serial(small_config, tmp_
         ]
     ).to_csv(manifest, index=False)
     policies = ["uncertainty_lookahead", "nested_veer_4x4_mean_kappa0"]
-    serial_metrics, _ = run_v5_veer_stack_validation(
+    serial_metrics, _ = run_veer_stack_validation(
         config_path, tmp_path / "serial", manifest, "1", ["001"], policies, seed=0, workers=1
     )
-    parallel_metrics, _ = run_v5_veer_stack_validation(
+    parallel_metrics, _ = run_veer_stack_validation(
         config_path, tmp_path / "parallel", manifest, "1", ["001"], policies, seed=0, workers=2
     )
     key = ["fold", "slice", "policy", "iteration"]
@@ -474,9 +475,9 @@ def test_veer_cli_resume_does_not_duplicate_work_or_emit_v4_fields(small_config,
             for channel in ("Cr", "Ni")
         ]
     ).to_csv(manifest, index=False)
-    output = tmp_path / "v5_veer_out"
+    output = tmp_path / "veer_out"
     arguments = [
-        "validate-v5-veer-stack",
+        "validate-veer-stack",
         "--config",
         str(config_path),
         "--manifest",
@@ -493,16 +494,16 @@ def test_veer_cli_resume_does_not_duplicate_work_or_emit_v4_fields(small_config,
     runner = CliRunner()
     first = runner.invoke(app, arguments)
     assert first.exit_code == 0, first.output
-    first_metrics = pd.read_csv(output / "v5_veer_metrics_by_iteration.csv")
+    first_metrics = pd.read_csv(output / "veer_metrics_by_iteration.csv")
     second = runner.invoke(app, arguments)
     assert second.exit_code == 0, second.output
-    second_metrics = pd.read_csv(output / "v5_veer_metrics_by_iteration.csv")
+    second_metrics = pd.read_csv(output / "veer_metrics_by_iteration.csv")
     assert len(first_metrics) == len(second_metrics)
-    assert (output / "v5_veer_variogram_trace.csv").exists()
-    columns = set(pd.read_csv(output / "v5_veer_candidate_trace.csv").columns)
+    assert (output / "veer_variogram_trace.csv").exists()
+    columns = set(pd.read_csv(output / "veer_candidate_trace.csv").columns)
     assert {"expected_error_reduction", "eer_per_cost", "front_kappa"} <= columns
     assert not {"EIVR_LCB", "additive_bonus", "relative_evidence", "geometry_shortlist_eligible"} & columns
-    trailing = pd.read_csv(output / "v5_veer_trailing_summary.csv")
+    trailing = pd.read_csv(output / "veer_trailing_summary.csv")
     assert {"trailing_median_composite", "trailing_median_delta_vs_uncertainty"} <= set(trailing.columns)
     assert set(trailing["policy"]) == {
         "uncertainty_lookahead",
@@ -510,7 +511,7 @@ def test_veer_cli_resume_does_not_duplicate_work_or_emit_v4_fields(small_config,
         "nested_veer_4x4_mean_kappa5",
     }
     protocol = yaml.safe_load(
-        (output / "v5_veer_fold_protocol.yaml").read_text(encoding="utf-8")
+        (output / "veer_fold_protocol.yaml").read_text(encoding="utf-8")
     )
     assert protocol["objective"].startswith("expected nearest-observation")
     assert protocol["pilot_seeding"].startswith("default_rng([seed, slice])")

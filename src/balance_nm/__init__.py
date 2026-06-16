@@ -1,6 +1,110 @@
-"""BALANCE-NM: Bayesian adaptive synthetic SEM-EDS acquisition."""
+"""BALANCE-NM: variogram expected-error-reduction (VEER) adaptive raster selection."""
 
 from .domain import RunConfig
+from .features import (
+    SubtileObservation,
+    SubtileSpec,
+    anisotropic_matern_3_2_kernel,
+    robust_scale_feature_tensor,
+    subtile_observations_from_revealed_roi,
+)
+from .morphology import (
+    normalized_reconstruction_rmse,
+    reconstruct_from_observed_mask,
+)
+from .replay import (
+    build_folds,
+    build_roi_catalog,
+    config_for_slice,
+    distance_pixels,
+    lookahead_coverage_gain,
+    manifest_slice_ids,
+    raster_cost,
+    sources_from_manifest,
+    summarize_metrics,
+)
+from .variogram import (
+    NestedVariogramFit,
+    VariogramPosterior,
+    fit_nested_variogram,
+    fit_variogram_posterior,
+    gamma_nested,
+    matern_3_2_correlation,
+    tempered_model_weights,
+)
+from .selection import (
+    NestedPolicySpec,
+    VeerPolicySpec,
+    front_movement_fraction,
+    front_probability_weights,
+    front_relevance_weights,
+    kernel_distance_field,
+    kernel_rectangle_distance,
+    nested_veer_candidate_scores,
+    nested_veer_select_candidate,
+    parse_nested_policy,
+    parse_veer_policy,
+    predicted_depth_profile,
+    veer_candidate_scores,
+    veer_select_candidate,
+)
+from .validation import (
+    GATED_ARMS,
+    NESTED_ARMS,
+    VEER_ARMS,
+    VEER_POLICIES,
+    VeerSliceResult,
+    run_veer_slice_replay,
+    run_veer_stack_validation,
+    trailing_endpoint_summary,
+)
 
-__all__ = ["RunConfig"]
-__version__ = "0.2.0"
+__all__ = [
+    "RunConfig",
+    "SubtileObservation",
+    "SubtileSpec",
+    "anisotropic_matern_3_2_kernel",
+    "robust_scale_feature_tensor",
+    "subtile_observations_from_revealed_roi",
+    "normalized_reconstruction_rmse",
+    "reconstruct_from_observed_mask",
+    "build_folds",
+    "build_roi_catalog",
+    "config_for_slice",
+    "distance_pixels",
+    "lookahead_coverage_gain",
+    "manifest_slice_ids",
+    "raster_cost",
+    "sources_from_manifest",
+    "summarize_metrics",
+    "NestedVariogramFit",
+    "VariogramPosterior",
+    "fit_nested_variogram",
+    "fit_variogram_posterior",
+    "gamma_nested",
+    "matern_3_2_correlation",
+    "tempered_model_weights",
+    "NestedPolicySpec",
+    "VeerPolicySpec",
+    "front_movement_fraction",
+    "front_probability_weights",
+    "front_relevance_weights",
+    "kernel_distance_field",
+    "kernel_rectangle_distance",
+    "nested_veer_candidate_scores",
+    "nested_veer_select_candidate",
+    "parse_nested_policy",
+    "parse_veer_policy",
+    "predicted_depth_profile",
+    "veer_candidate_scores",
+    "veer_select_candidate",
+    "GATED_ARMS",
+    "NESTED_ARMS",
+    "VEER_ARMS",
+    "VEER_POLICIES",
+    "VeerSliceResult",
+    "run_veer_slice_replay",
+    "run_veer_stack_validation",
+    "trailing_endpoint_summary",
+]
+__version__ = "0.3.0"

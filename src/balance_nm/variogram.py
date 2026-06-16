@@ -1,4 +1,4 @@
-"""Calibrated model-averaged Matern-3/2 variogram estimation for v5 replay."""
+"""Calibrated model-averaged Matern-3/2 variogram estimation for replay."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import numpy as np
 from scipy.optimize import nnls
 from sklearn.decomposition import PCA
 
-from ..domain import RunConfig
-from ..v4_bayesian_pareto import ParetoSubtileObservation, robust_scale_feature_tensor
-from ..v4_bayesian_residual import anisotropic_matern_3_2_kernel
+from .domain import RunConfig
+from .features import SubtileObservation, robust_scale_feature_tensor
+from .features import anisotropic_matern_3_2_kernel
 
 
 @dataclass(frozen=True)
@@ -88,14 +88,14 @@ def _summed_log_marginal_likelihood(
 
 
 def fit_variogram_posterior(
-    observations: list[ParetoSubtileObservation],
+    observations: list[SubtileObservation],
     config: RunConfig,
 ) -> VariogramPosterior:
     """Fit the revealed-only model-averaged variogram on standardized latents."""
 
     if len(observations) < 2:
         raise ValueError("v5 variogram posterior requires at least two revealed subtiles")
-    settings = config.acquisition_v5
+    settings = config.variogram
     raw = np.stack([node.feature_values for node in observations])
     scaled, _, feature_iqr = robust_scale_feature_tensor(
         raw,
@@ -180,10 +180,10 @@ def gamma_nested(distance: np.ndarray, fit: NestedVariogramFit) -> np.ndarray:
 
 
 def _binned_semivariogram(
-    observations: list[ParetoSubtileObservation],
+    observations: list[SubtileObservation],
     config: RunConfig,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    settings = config.acquisition_v5
+    settings = config.variogram
     raw = np.stack([node.feature_values for node in observations])
     scaled, _, _ = robust_scale_feature_tensor(
         raw,
@@ -218,7 +218,7 @@ def _binned_semivariogram(
 
 
 def fit_nested_variogram(
-    observations: list[ParetoSubtileObservation],
+    observations: list[SubtileObservation],
     config: RunConfig,
 ) -> NestedVariogramFit:
     """Fit gamma(d) = c0 + c1 * (1 - rho(d; l)) + c2 * d by Cressie-weighted NNLS.
@@ -231,7 +231,7 @@ def fit_nested_variogram(
 
     if len(observations) < 2:
         raise ValueError("v5.1 nested variogram requires at least two revealed subtiles")
-    settings = config.acquisition_v5
+    settings = config.variogram
     bin_distances, bin_values, bin_counts = _binned_semivariogram(observations, config)
     if bin_distances.size == 0:
         raise ValueError("v5.1 nested variogram has no usable distance bins")

@@ -1,4 +1,4 @@
-"""Front-weighted variogram expected-error-reduction (VEER) selection for v5."""
+"""Front-weighted variogram expected-error-reduction (VEER) selection."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ import pandas as pd
 import xarray as xr
 from scipy.ndimage import distance_transform_edt
 
-from ..domain import RunConfig
-from ..v3_morphology import front_from_probability
-from ..v3_validation import _raster_cost
+from .domain import RunConfig
+from .morphology import front_from_probability
+from .replay import raster_cost
 from .variogram import (
     NestedVariogramFit,
     VariogramPosterior,
@@ -177,7 +177,7 @@ def front_relevance_weights(
     step_x = float(x[1] - x[0]) if len(x) > 1 else 1.0
     step_y = float(y[1] - y[0]) if len(y) > 1 else 1.0
     distance_nm = distance_transform_edt(~front, sampling=(step_y, step_x))
-    bandwidth = config.acquisition_v5.front_bandwidth_nm
+    bandwidth = config.variogram.front_bandwidth_nm
     band = np.exp(-0.5 * (distance_nm / bandwidth) ** 2)
     return 1.0 + front_kappa * band
 
@@ -259,7 +259,7 @@ def nested_veer_candidate_scores(
         reductions[position] = float(np.sum(pixel_weights[closer] * gain))
     candidates["expected_error_reduction"] = reductions / weight_total
     candidates["estimated_raster_cost_s"] = [
-        _raster_cost(config, roi)[0] for _, roi in candidates.iterrows()
+        raster_cost(config, roi)[0] for _, roi in candidates.iterrows()
     ]
     candidates["eer_per_cost"] = candidates["expected_error_reduction"] / np.maximum(
         candidates["estimated_raster_cost_s"], 1.0e-12
@@ -330,7 +330,7 @@ def veer_candidate_scores(
         posterior.sill * reductions / weight_total
     )
     candidates["estimated_raster_cost_s"] = [
-        _raster_cost(config, roi)[0] for _, roi in candidates.iterrows()
+        raster_cost(config, roi)[0] for _, roi in candidates.iterrows()
     ]
     candidates["eer_per_cost"] = candidates["expected_error_reduction"] / np.maximum(
         candidates["estimated_raster_cost_s"], 1.0e-12

@@ -194,11 +194,6 @@ class ModelConfig(DomainModel):
     max_observations: int = Field(default=1500, ge=16)
 
 
-class AcquisitionConfig(DomainModel):
-    maximum_follow_on_actions: int = Field(default=16, ge=1)
-    minimum_utility: float = Field(default=0.0, ge=0)
-
-
 class TaskConfig(DomainModel):
     mode: TaskMode = "interface_imaging"
     data_semantics: Literal["counts", "uncalibrated_counts", "intensity_proxy"] = "counts"
@@ -216,175 +211,7 @@ class MorphologyConfig(DomainModel):
     max_state_fit_points: int = Field(default=12000, ge=100)
 
 
-class AcquisitionV3WeightSchedule(DomainModel):
-    early: dict[str, float] = Field(
-        default_factory=lambda: {
-            "front_entropy": 0.05,
-            "penetration_variance": 0.05,
-            "reconstruction_uncertainty": 0.90,
-        }
-    )
-    late: dict[str, float] = Field(
-        default_factory=lambda: {
-            "front_entropy": 0.55,
-            "penetration_variance": 0.25,
-            "reconstruction_uncertainty": 0.20,
-        }
-    )
-
-    @model_validator(mode="after")
-    def validate_schedule(self) -> "AcquisitionV3WeightSchedule":
-        for name, weights in (("early", self.early), ("late", self.late)):
-            if any(value < 0 for value in weights.values()):
-                raise ValueError(f"{name} scheduled weights must be non-negative")
-            if not any(value > 0 for value in weights.values()):
-                raise ValueError(f"{name} scheduled weights need at least one positive value")
-        return self
-
-
-class MorphologyGateConfig(DomainModel):
-    minimum_observed_area_fraction: float = Field(default=0.08, ge=0, le=1)
-    minimum_state_separation_score: float = Field(default=0.10, ge=0, le=1)
-    minimum_front_support_fraction: float = Field(default=0.005, ge=0, le=1)
-    maximum_front_support_fraction: float = Field(default=0.60, ge=0, le=1)
-
-    @model_validator(mode="after")
-    def validate_gate(self) -> "MorphologyGateConfig":
-        if self.maximum_front_support_fraction < self.minimum_front_support_fraction:
-            raise ValueError("maximum front support must be at least the minimum front support")
-        return self
-
-
-class AcquisitionV3ResidualAttentionConfig(DomainModel):
-    near_tie_ratio: float = Field(default=0.90, gt=0.0, le=1.0)
-    maximum_bonus_fraction: float = Field(default=0.10, ge=0.0, le=1.0)
-    centering_method: Literal["eligible_median"] = "eligible_median"
-
-
-class AcquisitionV3AttentionConfig(DomainModel):
-    floor: float = Field(default=0.35, ge=0.0, le=1.0)
-    contrast_weight: float = Field(default=0.45, ge=0.0)
-    channel_diversity_weight: float = Field(default=0.35, ge=0.0)
-    front_weight: float = Field(default=0.20, ge=0.0)
-    require_morphology_gate_for_front: bool = True
-    residual: AcquisitionV3ResidualAttentionConfig = Field(
-        default_factory=AcquisitionV3ResidualAttentionConfig
-    )
-
-    @model_validator(mode="after")
-    def validate_attention(self) -> "AcquisitionV3AttentionConfig":
-        if (
-            self.contrast_weight
-            + self.channel_diversity_weight
-            + self.front_weight
-        ) <= 0:
-            raise ValueError("at least one v3 attention weight must be positive")
-        return self
-
-
-class AcquisitionV3GraphGPConfig(DomainModel):
-    kernel: Literal["matern_3_2"] = "matern_3_2"
-    length_scale_fraction: float = Field(default=0.20, gt=0.0, le=1.0)
-    alpha_floor: float = Field(default=1.0e-6, gt=0.0)
-    optimizer: Literal["disabled"] = "disabled"
-
-
-class AcquisitionV3GraphHybridWeights(DomainModel):
-    spatial_gap: float = Field(default=0.45, ge=0.0)
-    uncertainty: float = Field(default=0.45, ge=0.0)
-    endpoint_contrast: float = Field(default=0.10, ge=0.0)
-
-    @model_validator(mode="after")
-    def validate_weights(self) -> "AcquisitionV3GraphHybridWeights":
-        if self.spatial_gap + self.uncertainty + self.endpoint_contrast <= 0:
-            raise ValueError("at least one graph hybrid weight must be positive")
-        return self
-
-
-class AcquisitionV3GraphConfig(DomainModel):
-    pilot_topology: Literal["complete"] = "complete"
-    active_topology: Literal["delaunay"] = "delaunay"
-    fallback_topology: Literal["complete"] = "complete"
-    corridor_half_width_roi_diagonals: float = Field(default=0.50, gt=0.0)
-    gp: AcquisitionV3GraphGPConfig = Field(default_factory=AcquisitionV3GraphGPConfig)
-    hybrid_weights: AcquisitionV3GraphHybridWeights = Field(
-        default_factory=AcquisitionV3GraphHybridWeights
-    )
-    policies: list[Literal["graph_gap", "graph_uncertainty", "graph_hybrid"]] = Field(
-        default_factory=lambda: ["graph_gap", "graph_uncertainty", "graph_hybrid"]
-    )
-    uncertainty_providers: list[Literal["distance", "roi_gp"]] = Field(
-        default_factory=lambda: ["distance", "roi_gp"]
-    )
-    confirmation_modes: list[Literal["disabled", "one_anchor"]] = Field(
-        default_factory=lambda: ["disabled", "one_anchor"]
-    )
-
-
-class AcquisitionV3Config(DomainModel):
-    roi_size_px: tuple[int, int] = Field(default=(64, 64))
-    pilot_rois: int = Field(default=4, ge=2)
-    adaptive_rois: int = Field(default=8, ge=0)
-    neighbor_confirmation: Literal["disabled", "one_anchor", "multi_anchor"] = "one_anchor"
-    neighbor_anchors: int = Field(default=1, ge=1)
-    utility_weights: dict[str, float] = Field(
-        default_factory=lambda: {
-            "front_entropy": 0.50,
-            "penetration_variance": 0.30,
-            "reconstruction_uncertainty": 0.20,
-        }
-    )
-    scheduled_weights: AcquisitionV3WeightSchedule = Field(default_factory=AcquisitionV3WeightSchedule)
-    morphology_gate: MorphologyGateConfig = Field(default_factory=MorphologyGateConfig)
-    attention: AcquisitionV3AttentionConfig = Field(default_factory=AcquisitionV3AttentionConfig)
-    graph: AcquisitionV3GraphConfig = Field(default_factory=AcquisitionV3GraphConfig)
-    stop_min_utility: float = 0.0
-
-    @model_validator(mode="after")
-    def validate_v3(self) -> "AcquisitionV3Config":
-        if self.roi_size_px[0] <= 0 or self.roi_size_px[1] <= 0:
-            raise ValueError("v3 ROI dimensions must be positive")
-        if any(value < 0 for value in self.utility_weights.values()):
-            raise ValueError("v3 utility weights must be non-negative")
-        if not any(value > 0 for value in self.utility_weights.values()):
-            raise ValueError("at least one v3 utility weight must be positive")
-        return self
-
-
-class AcquisitionV4CalibratorConfig(DomainModel):
-    enabled: bool = True
-    shortlist_ratios: list[float] = Field(default_factory=lambda: [0.70, 0.80, 0.90])
-    learned_weights: list[float] = Field(default_factory=lambda: [0.25, 0.50, 0.75])
-    max_training_slices: int = Field(default=8, ge=1)
-    max_validation_slices: int = Field(default=4, ge=1)
-    max_training_states_per_slice: int = Field(default=4, ge=1)
-    max_candidates_per_state: int = Field(default=8, ge=1)
-    random_state: int = Field(default=0, ge=0)
-
-    @model_validator(mode="after")
-    def validate_search_space(self) -> "AcquisitionV4CalibratorConfig":
-        if any(not 0.0 < value <= 1.0 for value in self.shortlist_ratios):
-            raise ValueError("v4 calibrator shortlist ratios must be in (0, 1]")
-        if any(not 0.0 <= value <= 1.0 for value in self.learned_weights):
-            raise ValueError("v4 calibrator learned weights must be in [0, 1]")
-        return self
-
-
-class AcquisitionV4NeuralConfig(DomainModel):
-    enabled: bool = True
-    ensemble_size: int = Field(default=3, ge=1)
-    depth: int = Field(default=3, ge=1, le=4)
-    base_channels: int = Field(default=24, ge=4)
-    dropout: float = Field(default=0.10, ge=0.0, lt=1.0)
-    epochs: int = Field(default=40, ge=1)
-    early_stop_patience: int = Field(default=5, ge=1)
-    batch_size: int = Field(default=2, ge=1)
-    training_masks_per_slice: int = Field(default=4, ge=1)
-    max_training_slices: int = Field(default=24, ge=1)
-    learning_rate: float = Field(default=1.0e-3, gt=0.0)
-
-
-class AcquisitionV4FoldConfig(DomainModel):
+class FoldConfig(DomainModel):
     outer_test_ranges: list[tuple[int, int]] = Field(
         default_factory=lambda: [(1, 53), (54, 106), (107, 159), (160, 212), (213, 265)]
     )
@@ -393,271 +220,35 @@ class AcquisitionV4FoldConfig(DomainModel):
     validation_guard_slices: int = Field(default=2, ge=0)
 
     @model_validator(mode="after")
-    def validate_ranges(self) -> "AcquisitionV4FoldConfig":
+    def validate_ranges(self) -> "FoldConfig":
         if any(first <= 0 or last < first for first, last in self.outer_test_ranges):
-            raise ValueError("v4 outer test ranges must be positive inclusive ranges")
+            raise ValueError("outer test ranges must be positive inclusive ranges")
         return self
 
 
-class AcquisitionV4BayesianConfig(DomainModel):
-    enabled: bool = True
-    model_resolution: Literal["roi_summary"] = "roi_summary"
-    kernel: Literal["matern_3_2"] = "matern_3_2"
-    length_scale_catalog: list[float] = Field(
-        default_factory=lambda: [0.10, 0.20, 0.30, 0.40]
-    )
-    alpha_floor: float = Field(default=1.0e-6, gt=0.0)
-    jitter: float = Field(default=1.0e-8, gt=0.0)
-    candidate_noise: Literal["revealed_channel_median"] = "revealed_channel_median"
-    channel_aggregation: Literal["equal_weight_mean"] = "equal_weight_mean"
-    geometry_shortlist_ratio: float = Field(default=0.80, gt=0.0, le=1.0)
-    tie_tolerance: float = Field(default=1.0e-12, gt=0.0)
-    max_validation_slices: int = Field(default=4, ge=1)
-
-    @model_validator(mode="after")
-    def validate_bayesian(self) -> "AcquisitionV4BayesianConfig":
-        if not self.length_scale_catalog or any(
-            not 0.0 < value <= 1.0 for value in self.length_scale_catalog
-        ):
-            raise ValueError("v4 Bayesian length scales must be in (0, 1]")
-        return self
-
-
-class AcquisitionV4BayesianResidualROISummaryConfig(DomainModel):
-    kernel: Literal["matern_3_2"] = "matern_3_2"
-    length_scale_catalog: list[float] = Field(
-        default_factory=lambda: [0.025, 0.050, 0.075, 0.100, 0.150]
-    )
-    prior_weights: Literal["uniform"] = "uniform"
-    alpha_floor: float = Field(default=1.0e-6, gt=0.0)
-    jitter: float = Field(default=1.0e-8, gt=0.0)
-
-    @model_validator(mode="after")
-    def validate_catalog(self) -> "AcquisitionV4BayesianResidualROISummaryConfig":
-        if not self.length_scale_catalog or any(
-            not 0.0 < value <= 1.0 for value in self.length_scale_catalog
-        ):
-            raise ValueError("v4.2 ROI-summary length scales must be in (0, 1]")
-        return self
-
-
-class AcquisitionV4BayesianResidualSubtileConfig(DomainModel):
-    enabled: bool = True
-    grid_shape: tuple[int, int] = (4, 4)
-    latent_components: int = Field(default=4, ge=1)
-    scaling: Literal["revealed_robust"] = "revealed_robust"
-    embedding: Literal["revealed_pca"] = "revealed_pca"
-    noise_estimator: Literal["local_residual_mad"] = "local_residual_mad"
-    residual_filter_sigma_px: float = Field(default=1.0, gt=0.0)
-    alpha_floor: float = Field(default=1.0e-6, gt=0.0)
-    jitter: float = Field(default=1.0e-8, gt=0.0)
-    kernel: Literal["anisotropic_matern_3_2"] = "anisotropic_matern_3_2"
-    kernel_catalog: list[tuple[float, float]] = Field(
-        default_factory=lambda: [
-            (0.025, 0.025),
-            (0.050, 0.050),
-            (0.075, 0.075),
-            (0.050, 0.100),
-            (0.100, 0.050),
-        ]
-    )
-    prior_weights: Literal["uniform"] = "uniform"
-
-    @model_validator(mode="after")
-    def validate_subtiles(self) -> "AcquisitionV4BayesianResidualSubtileConfig":
-        if self.grid_shape[0] <= 0 or self.grid_shape[1] <= 0:
-            raise ValueError("v4.2 subtile grid dimensions must be positive")
-        if not self.kernel_catalog or any(
-            not 0.0 < value <= 1.0 for pair in self.kernel_catalog for value in pair
-        ):
-            raise ValueError("v4.2 subtile kernel length scales must be in (0, 1]")
-        return self
-
-
-class AcquisitionV4BayesianResidualConfig(DomainModel):
-    geometry_shortlist_ratio: float = Field(default=0.98, gt=0.0, le=1.0)
-    maximum_bonus_fraction: float = Field(default=0.05, ge=0.0, le=1.0)
-    centering_method: Literal["eligible_median"] = "eligible_median"
-    tie_tolerance: float = Field(default=1.0e-12, gt=0.0)
-    roi_summary: AcquisitionV4BayesianResidualROISummaryConfig = Field(
-        default_factory=AcquisitionV4BayesianResidualROISummaryConfig
-    )
-    subtile: AcquisitionV4BayesianResidualSubtileConfig = Field(
-        default_factory=AcquisitionV4BayesianResidualSubtileConfig
-    )
-
-
-class AcquisitionV4BayesianMorphologyEvidenceGateConfig(DomainModel):
-    geometry_shortlist_ratio: float = Field(default=0.995, gt=0.0, le=1.0)
-    maximum_bonus_fraction: float = Field(default=0.02, ge=0.0, le=1.0)
-    minimum_relative_eivr_lcb: float = Field(default=0.02, ge=0.0)
-    minimum_kernel_support: float = Field(default=0.90, ge=0.0, le=1.0)
-    lcb_standard_deviations: float = Field(default=1.0, ge=0.0)
-    tie_tolerance: float = Field(default=1.0e-12, gt=0.0)
-
-
-class AcquisitionV4BayesianMorphologyUtilityWeights(DomainModel):
-    front_uncertainty: float = Field(default=0.60, ge=0.0)
-    penetration_uncertainty: float = Field(default=0.30, ge=0.0)
-    reconstruction_uncertainty: float = Field(default=0.10, ge=0.0)
-
-    @model_validator(mode="after")
-    def validate_weights(self) -> "AcquisitionV4BayesianMorphologyUtilityWeights":
-        if (
-            self.front_uncertainty
-            + self.penetration_uncertainty
-            + self.reconstruction_uncertainty
-        ) <= 0:
-            raise ValueError("at least one v4.3 morphology utility weight must be positive")
-        return self
-
-
-class AcquisitionV4BayesianMorphologyReliabilityGateConfig(DomainModel):
-    minimum_observed_area_fraction: float = Field(default=0.10, ge=0.0, le=1.0)
-    minimum_front_presence_probability: float = Field(default=0.75, ge=0.0, le=1.0)
-    minimum_front_support_fraction: float = Field(default=0.002, ge=0.0, le=1.0)
-    maximum_front_support_fraction: float = Field(default=0.20, ge=0.0, le=1.0)
-    minimum_state_assignment_confidence: float = Field(default=0.60, ge=0.0, le=1.0)
-
-    @model_validator(mode="after")
-    def validate_front_support(self) -> "AcquisitionV4BayesianMorphologyReliabilityGateConfig":
-        if self.maximum_front_support_fraction < self.minimum_front_support_fraction:
-            raise ValueError("maximum v4.3 front support must be at least the minimum")
-        return self
-
-
-class AcquisitionV4BayesianMorphologyFantasyConfig(DomainModel):
-    enabled: bool = True
-    geometry_shortlist_ratio: float = Field(default=0.98, gt=0.0, le=1.0)
-    maximum_shortlist_candidates: int = Field(default=4, ge=1)
-    morphology_grid_shape: tuple[int, int] = (24, 24)
-    current_posterior_samples: int = Field(default=8, ge=1)
-    fantasies_per_candidate: int = Field(default=4, ge=1)
-    conditional_samples_per_fantasy: int = Field(default=4, ge=1)
-    random_seed: int = Field(default=0, ge=0)
-    utility_weights: AcquisitionV4BayesianMorphologyUtilityWeights = Field(
-        default_factory=AcquisitionV4BayesianMorphologyUtilityWeights
-    )
-    reliability_gate: AcquisitionV4BayesianMorphologyReliabilityGateConfig = Field(
-        default_factory=AcquisitionV4BayesianMorphologyReliabilityGateConfig
-    )
-    task_gain_lcb_standard_errors: float = Field(default=1.0, ge=0.0)
-    maximum_bonus_fraction: float = Field(default=0.05, ge=0.0, le=1.0)
-
-    @model_validator(mode="after")
-    def validate_grid(self) -> "AcquisitionV4BayesianMorphologyFantasyConfig":
-        if self.morphology_grid_shape[0] < 4 or self.morphology_grid_shape[1] < 4:
-            raise ValueError("v4.3 morphology grid dimensions must each be at least 4")
-        return self
-
-
-class AcquisitionV4BayesianMorphologyConfig(DomainModel):
-    evidence_gate: AcquisitionV4BayesianMorphologyEvidenceGateConfig = Field(
-        default_factory=AcquisitionV4BayesianMorphologyEvidenceGateConfig
-    )
-    fantasy: AcquisitionV4BayesianMorphologyFantasyConfig = Field(
-        default_factory=AcquisitionV4BayesianMorphologyFantasyConfig
-    )
-
-
-class AcquisitionV4BayesianParetoGPReconstructionConfig(DomainModel):
-    enabled: bool = True
-    endpoint_only: bool = True
-    chunk_pixels: int = Field(default=8192, ge=128)
-    write_maps: bool = False
-
-
-class AcquisitionV4BayesianParetoConfig(DomainModel):
-    geometry_shortlist_ratios: list[float] = Field(
-        default_factory=lambda: [0.90, 0.85]
-    )
-    minimum_kernel_support: float = Field(default=0.90, ge=0.0, le=1.0)
-    lcb_standard_deviations: float = Field(default=1.0, ge=0.0)
-    robust_iqr_epsilon: float = Field(default=1.0e-6, gt=0.0)
-    scaled_feature_clip: float = Field(default=8.0, gt=0.0)
-    max_training_subtiles_8x8: int = Field(default=384, ge=64)
-    latent_components: int = Field(default=4, ge=1)
-    residual_filter_sigma_px: float = Field(default=1.0, gt=0.0)
-    alpha_floor: float = Field(default=1.0e-6, gt=0.0)
-    jitter: float = Field(default=1.0e-8, gt=0.0)
-    kernel_catalog: list[tuple[float, float]] = Field(
-        default_factory=lambda: [
-            (0.025, 0.025),
-            (0.050, 0.050),
-            (0.075, 0.075),
-            (0.050, 0.100),
-            (0.100, 0.050),
-        ]
-    )
-    gp_reconstruction: AcquisitionV4BayesianParetoGPReconstructionConfig = Field(
-        default_factory=AcquisitionV4BayesianParetoGPReconstructionConfig
-    )
-
-    @model_validator(mode="after")
-    def validate_pareto(self) -> "AcquisitionV4BayesianParetoConfig":
-        if not self.geometry_shortlist_ratios or any(
-            not 0.0 < value <= 1.0 for value in self.geometry_shortlist_ratios
-        ):
-            raise ValueError("v4.4 geometry shortlist ratios must be in (0, 1]")
-        if not self.kernel_catalog or any(
-            not 0.0 < value <= 1.0 for pair in self.kernel_catalog for value in pair
-        ):
-            raise ValueError("v4.4 kernel length scales must be in (0, 1]")
-        return self
-
-
-class AcquisitionV4BayesianParetoAdditiveConfig(DomainModel):
-    geometry_shortlist_ratio: float = Field(default=0.90, gt=0.0, le=1.0)
-    exchange_rates: list[float] = Field(default_factory=lambda: [1.0, 2.0, 5.0, 10.0])
-    minimum_kernel_support: float = Field(default=0.90, ge=0.0, le=1.0)
-    lcb_standard_deviations: float = Field(default=1.0, ge=0.0)
-
-    @model_validator(mode="after")
-    def validate_additive(self) -> "AcquisitionV4BayesianParetoAdditiveConfig":
-        if not self.exchange_rates or any(value < 0.0 for value in self.exchange_rates):
-            raise ValueError("v4.5 additive exchange rates must be non-negative")
-        return self
-
-
-class AcquisitionV4Config(DomainModel):
+class AcquisitionConfig(DomainModel):
     roi_size_px: tuple[int, int] = Field(default=(64, 64))
     pilot_rois: int = Field(default=4, ge=2)
     total_rois: int = Field(default=17, ge=3)
-    historical_adaptive_rois_before_anchor: int = Field(default=8, ge=0)
     front_weight: float = Field(default=0.50, ge=0.0)
     penetration_d95_weight: float = Field(default=0.50, ge=0.0)
     rmse_regression_limit_fraction: float = Field(default=0.02, ge=0.0)
     excluded_channels: list[str] = Field(default_factory=lambda: ["CPS"])
-    oracle_sample_slices: int = Field(default=30, ge=0)
-    calibrator: AcquisitionV4CalibratorConfig = Field(default_factory=AcquisitionV4CalibratorConfig)
-    neural: AcquisitionV4NeuralConfig = Field(default_factory=AcquisitionV4NeuralConfig)
-    bayesian: AcquisitionV4BayesianConfig = Field(default_factory=AcquisitionV4BayesianConfig)
-    bayesian_residual: AcquisitionV4BayesianResidualConfig = Field(
-        default_factory=AcquisitionV4BayesianResidualConfig
-    )
-    bayesian_morphology: AcquisitionV4BayesianMorphologyConfig = Field(
-        default_factory=AcquisitionV4BayesianMorphologyConfig
-    )
-    bayesian_pareto: AcquisitionV4BayesianParetoConfig = Field(
-        default_factory=AcquisitionV4BayesianParetoConfig
-    )
-    bayesian_pareto_additive: AcquisitionV4BayesianParetoAdditiveConfig = Field(
-        default_factory=AcquisitionV4BayesianParetoAdditiveConfig
-    )
-    folds: AcquisitionV4FoldConfig = Field(default_factory=AcquisitionV4FoldConfig)
+    folds: FoldConfig = Field(default_factory=FoldConfig)
 
     @model_validator(mode="after")
-    def validate_v4(self) -> "AcquisitionV4Config":
+    def validate_acquisition(self) -> "AcquisitionConfig":
         if self.roi_size_px[0] <= 0 or self.roi_size_px[1] <= 0:
-            raise ValueError("v4 ROI dimensions must be positive")
+            raise ValueError("ROI dimensions must be positive")
         if self.total_rois <= self.pilot_rois:
-            raise ValueError("v4 total_rois must exceed pilot_rois")
+            raise ValueError("total_rois must exceed pilot_rois")
         if self.front_weight + self.penetration_d95_weight <= 0:
-            raise ValueError("at least one v4 morphology-composite weight must be positive")
+            raise ValueError("at least one morphology-composite weight must be positive")
         return self
 
 
-class AcquisitionV5VariogramConfig(DomainModel):
+class VariogramConfig(DomainModel):
+    residual_filter_sigma_px: float = Field(default=1.0, gt=0.0)
     latent_components: int = Field(default=4, ge=1)
     kernel_catalog: list[tuple[float, float]] = Field(
         default_factory=lambda: [
@@ -687,18 +278,18 @@ class AcquisitionV5VariogramConfig(DomainModel):
     trailing_window_iterations: int = Field(default=6, ge=1)
 
     @model_validator(mode="after")
-    def validate_variogram(self) -> "AcquisitionV5VariogramConfig":
+    def validate_variogram(self) -> "VariogramConfig":
         if not self.kernel_catalog or any(
             not 0.0 < value <= 1.0 for pair in self.kernel_catalog for value in pair
         ):
-            raise ValueError("v5 variogram kernel length scales must be in (0, 1]")
+            raise ValueError("variogram kernel length scales must be in (0, 1]")
         if not self.nested_length_scale_grid or any(
             not 0.0 < value <= 1.0 for value in self.nested_length_scale_grid
         ):
-            raise ValueError("v5.1 nested length-scale grid values must be in (0, 1]")
+            raise ValueError("nested length-scale grid values must be in (0, 1]")
         edges = self.nested_bin_edges
         if len(edges) < 3 or any(edges[i] >= edges[i + 1] for i in range(len(edges) - 1)) or edges[0] <= 0.0:
-            raise ValueError("v5.1 nested bin edges must be positive and strictly increasing")
+            raise ValueError("nested bin edges must be positive and strictly increasing")
         return self
 
 
@@ -865,13 +456,9 @@ class RunConfig(DomainModel):
     budget: Budget
     model: ModelConfig = Field(default_factory=ModelConfig)
     acquisition: AcquisitionConfig = Field(default_factory=AcquisitionConfig)
+    variogram: VariogramConfig = Field(default_factory=VariogramConfig)
     task: TaskConfig = Field(default_factory=TaskConfig)
     morphology: MorphologyConfig = Field(default_factory=MorphologyConfig)
-    acquisition_v3: AcquisitionV3Config = Field(default_factory=AcquisitionV3Config)
-    acquisition_v4: AcquisitionV4Config = Field(default_factory=AcquisitionV4Config)
-    acquisition_v5: AcquisitionV5VariogramConfig = Field(
-        default_factory=AcquisitionV5VariogramConfig
-    )
     benchmark: BenchmarkConfig = Field(default_factory=BenchmarkConfig)
     dataset: DatasetConfig = Field(default_factory=DatasetConfig)
     objectives: ObjectiveConfig = Field(default_factory=ObjectiveConfig)

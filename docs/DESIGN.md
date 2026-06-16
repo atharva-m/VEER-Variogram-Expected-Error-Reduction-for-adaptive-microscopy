@@ -172,17 +172,17 @@ maximum slice composite regression <= 0.02
 ## 8. Commands
 
 ```powershell
-.\.venv\Scripts\python.exe -m balance_nm validate-v5-veer-stack `
+.\.venv\Scripts\python.exe -m balance_nm validate-veer-stack `
   --config configs\alloy617_v5_veer.yaml `
   --manifest data\alloy617_nrds\full_stack_download_manifest.csv `
   --fold all `
   --slices 001,011,021,032,042,053,054,064,075,085 `
-  --out results\alloy617_v5_veer_smoke_010
+  --out results\alloy617_veer_smoke_010
 ```
 
 ## 9. Status: first real-slice smoke (slice 001, fold 1)
 
-Artifact folder: `results/alloy617_v5_veer_smoke_001/`. Pipeline verified
+Artifact folder: `results/alloy617_veer_smoke_001/`. Pipeline verified
 end-to-end on real data: equal scan cost across arms, paired pilots, all
 traces written, resume works.
 
@@ -229,7 +229,7 @@ natural tie-breaker among near-equal gap splits.
 
 ## 10. V5.1: nested WLS variogram and probability-field front weights
 
-The 10-slice smoke (`results/alloy617_v5_veer_smoke_010/`) produced three
+The 10-slice smoke (`results/alloy617_veer_smoke_010/`) produced three
 diagnostics that define v5.1:
 
 1. **The maps have no sill.** Empirical semivariograms computed from the
@@ -296,11 +296,11 @@ restored inside the weighting as well as inside the variogram.
 
 Finally, v5.1 **pre-registers the trailing-median composite (final 6
 reveals) as a co-primary endpoint** alongside the final-iteration composite,
-written per slice to `v5_veer_trailing_summary.csv`. This is registered on
+written per slice to `veer_trailing_summary.csv`. This is registered on
 2026-06-11, on the basis of the policy-agnostic volatility diagnostic above
 and before any 30-slice gate run, to avoid post-hoc metric selection.
 
-### V5.1 10-slice smoke results (merged into `results/alloy617_v5_veer_smoke_010/`)
+### V5.1 10-slice smoke results (merged into `results/alloy617_veer_smoke_010/`)
 
 Trailing-median co-primary, delta vs `uncertainty_lookahead` across the 10
 smoke slices:
@@ -333,7 +333,7 @@ Interpretation:
   and arm selection happened on them. The 30-slice gate should be reported
   both with and without the 10 tuning slices.
 
-### Frozen 30-slice gate results (`results/alloy617_v5_veer_gate_030/`)
+### Frozen 30-slice gate results (`results/alloy617_veer_gate_030/`)
 
 Run 2026-06-12 with 12 worker processes (120 replays, ~12 minutes). Deltas
 vs `uncertainty_lookahead` on the pre-registered trailing-median co-primary:
@@ -452,7 +452,7 @@ design, so **promotion requires the untouched full-stack remainder**
 (gated_kappa5 vs baseline, all gates as registered, degenerate-reference
 slices excluded per the pre-registered rule).
 
-### Full-stack confirmation (2026-06-12, `results/alloy617_v5_veer_confirm_full_stack/`)
+### Full-stack confirmation (2026-06-12, `results/alloy617_veer_confirm_full_stack/`)
 
 `gated_veer_4x4_mean_kappa5` vs `uncertainty_lookahead` on the **235
 held-out slices** never used for any design or selection decision (470

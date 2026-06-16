@@ -1,4 +1,4 @@
-"""V3 morphology reconstruction products for unannotated corrosion map replay."""
+"""Morphology reconstruction products for unannotated corrosion map replay."""
 
 from __future__ import annotations
 

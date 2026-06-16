@@ -1,4 +1,4 @@
-"""V5 variogram expected-error-reduction validation for Alloy 617 replay."""
+"""Variogram expected-error-reduction (VEER) acquisition validation."""
 
 from __future__ import annotations
 
@@ -12,37 +12,37 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from ..data import ingest_dataset
-from ..io import load_config, write_config
-from ..v3_morphology import (
+from .data import ingest_dataset
+from .io import load_config, write_config
+from .morphology import (
     dense_signal_from_observations,
     pseudo_reference_from_dense_signal,
     reconstruct_from_observed_mask,
 )
-from ..v3_validation import (
-    _raster_cost,
-    build_v3_roi_catalog,
+from .replay import (
+    raster_cost,
+    build_roi_catalog,
     sources_from_manifest,
-    v3_config_for_slice,
+    config_for_slice,
 )
-from ..v4_bayesian_morphology_validation import paired_morphology_comparisons
-from ..v4_bayesian_pareto import (
-    ParetoPolicySpec,
-    ParetoSubtileObservation,
-    pareto_subtile_observations_from_revealed_roi,
+from .replay import paired_morphology_comparisons
+from .features import (
+    SubtileSpec,
+    SubtileObservation,
+    subtile_observations_from_revealed_roi,
 )
-from ..v4_validation import (
-    _checkpoint_part_path,
-    _deduplicate_metrics,
-    _deduplicate_trace,
-    _distance_pixels,
-    _manifest_slice_ids,
-    _read_checkpoint_frames,
-    _score_v4_prediction,
-    _write_checkpoint_part,
-    build_v4_folds,
+from .replay import (
+    checkpoint_part_path,
+    deduplicate_metrics,
+    deduplicate_trace,
+    distance_pixels,
+    manifest_slice_ids,
+    read_checkpoint_frames,
+    score_prediction,
+    write_checkpoint_part,
+    build_folds,
     lookahead_coverage_gain,
-    summarize_v4_metrics,
+    summarize_metrics,
 )
 from .selection import (
     NestedPolicySpec,
@@ -63,12 +63,12 @@ from .variogram import (
     fit_variogram_posterior,
 )
 
-V5_VEER_ARMS = [
+VEER_ARMS = [
     "variogram_eer_4x4_mean_kappa0",
     "variogram_eer_4x4_mean_kappa2",
     "variogram_eer_4x4_mean_kappa5",
 ]
-V5_NESTED_ARMS = [
+NESTED_ARMS = [
     "nested_veer_4x4_mean_kappa0",
     "nested_veer_4x4_mean_kappa2",
     "nested_veer_4x4_mean_kappa5",
@@ -76,41 +76,39 @@ V5_NESTED_ARMS = [
     "nested_band_veer_4x4_mean_kappa2",
     "nested_band_veer_4x4_mean_kappa5",
 ]
-V5_GATED_ARMS = [
+GATED_ARMS = [
     "gated_veer_4x4_mean_kappa5",
     "gated_veer_4x4_mean_kappa10",
 ]
-V5_VEER_POLICIES = [
+VEER_POLICIES = [
     "uncertainty_lookahead",
-    *V5_VEER_ARMS,
-    *V5_NESTED_ARMS,
-    *V5_GATED_ARMS,
+    *VEER_ARMS,
+    *NESTED_ARMS,
+    *GATED_ARMS,
 ]
 
 
 @dataclass
-class V5VeerSliceResult:
+class VeerSliceResult:
     metrics: pd.DataFrame
     candidate_trace: pd.DataFrame
     variogram_trace: pd.DataFrame
 
 
 def _veer_spec(policy: str) -> VeerPolicySpec | None:
-    if policy in V5_VEER_ARMS or policy in V5_GATED_ARMS:
+    if policy in VEER_ARMS or policy in GATED_ARMS:
         return parse_veer_policy(policy)
     return None
 
 
 def _nested_spec(policy: str) -> NestedPolicySpec | None:
-    if policy in V5_NESTED_ARMS:
+    if policy in NESTED_ARMS:
         return parse_nested_policy(policy)
     return None
 
 
-def _subtile_spec(policy: str) -> ParetoPolicySpec:
-    return ParetoPolicySpec(
-        policy=policy, grid_shape=(4, 4), feature_mode="mean", geometry_threshold=1.0
-    )
+def _subtile_spec(policy: str) -> SubtileSpec:
+    return SubtileSpec(grid_shape=(4, 4), feature_mode="mean")
 
 
 def _variogram_records(
@@ -227,7 +225,7 @@ def _deduplicate_variogram(frames: list[pd.DataFrame]) -> pd.DataFrame:
     )
 
 
-def run_v5_veer_slice_replay(
+def run_veer_slice_replay(
     config,
     dense_signal: np.ndarray,
     x: np.ndarray,
@@ -238,22 +236,22 @@ def run_v5_veer_slice_replay(
     fold_id: str = "smoke",
     seed: int = 0,
     checkpoint_callback: Callable[..., None] | None = None,
-) -> V5VeerSliceResult:
-    """Run one fixed-budget v5 VEER replay with per-slice paired pilots."""
+) -> VeerSliceResult:
+    """Run one fixed-budget VEER replay with per-slice paired pilots."""
 
-    if policy not in V5_VEER_POLICIES:
-        raise ValueError(f"unsupported v5 VEER policy: {policy}")
+    if policy not in VEER_POLICIES:
+        raise ValueError(f"unsupported VEER policy: {policy}")
     spec = _veer_spec(policy)
     nested = _nested_spec(policy)
     needs_subtiles = spec is not None or nested is not None
-    catalog = build_v3_roi_catalog(x, y, config.acquisition_v4.roi_size_px)
-    if config.acquisition_v4.total_rois > len(catalog):
+    catalog = build_roi_catalog(x, y, config.acquisition.roi_size_px)
+    if config.acquisition.total_rois > len(catalog):
         raise ValueError("v5 total_rois exceeds ROI catalog size")
     rng = np.random.default_rng([seed, int(slice_id)])
     rectangle_cache: dict = {}
     observed_mask = np.zeros(dense_signal.shape[1:], dtype=bool)
     queried_ids: set[str] = set()
-    subtile_nodes: list[ParetoSubtileObservation] = []
+    subtile_nodes: list[SubtileObservation] = []
     metrics: list[dict[str, object]] = []
     candidate_frames: list[pd.DataFrame] = []
     variogram_rows: list[dict[str, object]] = []
@@ -284,12 +282,12 @@ def run_v5_veer_slice_replay(
         column0, column1 = int(roi["column0"]), int(roi["column1"])
         observed_mask[row0:row1, column0:column1] = True
         queried_ids.add(str(roi["roi_id"]))
-        time_s, dose = _raster_cost(config, roi)
+        time_s, dose = raster_cost(config, roi)
         consumed_time_s += time_s
         consumed_dose += dose
         if needs_subtiles:
             subtile_nodes.extend(
-                pareto_subtile_observations_from_revealed_roi(
+                subtile_observations_from_revealed_roi(
                     roi, dense_signal, x, y, len(metrics) + 1, config, _subtile_spec(policy)
                 )
             )
@@ -311,7 +309,7 @@ def run_v5_veer_slice_replay(
                     previous_depth, depth, config.scenario.width_nm
                 )
             previous_depth = depth
-        score = _score_v4_prediction(
+        score = score_prediction(
             config,
             fold_id,
             policy,
@@ -352,7 +350,7 @@ def run_v5_veer_slice_replay(
             return selected, scored
         if spec is not None:
             if posterior is None:
-                raise ValueError("v5 VEER policies require a fitted variogram posterior")
+                raise ValueError("VEER policies require a fitted variogram posterior")
             effective_kappa = spec.front_kappa
             if spec.gated:
                 instability = (
@@ -360,7 +358,7 @@ def run_v5_veer_slice_replay(
                     if front_movement is None
                     else min(
                         1.0,
-                        front_movement / config.acquisition_v5.front_gate_movement_fraction,
+                        front_movement / config.variogram.front_gate_movement_fraction,
                     )
                 )
                 effective_kappa = spec.front_kappa * instability
@@ -376,15 +374,15 @@ def run_v5_veer_slice_replay(
                     np.nan if front_movement is None else front_movement
                 )
             return selected, scored
-        distance_pixels = _distance_pixels(observed_mask)
+        distance_field = distance_pixels(observed_mask)
         scores = catalog[~catalog["roi_id"].isin(queried_ids)].copy()
         if scores.empty:
-            raise ValueError("no feasible v5 raster candidates remain")
+            raise ValueError("no feasible raster candidates remain")
         scores["geometry_gain"] = [
-            lookahead_coverage_gain(distance_pixels, roi) for _, roi in scores.iterrows()
+            lookahead_coverage_gain(distance_field, roi) for _, roi in scores.iterrows()
         ]
         scores["estimated_raster_cost_s"] = [
-            _raster_cost(config, roi)[0] for _, roi in scores.iterrows()
+            raster_cost(config, roi)[0] for _, roi in scores.iterrows()
         ]
         scores["geometry_gain_per_cost"] = scores["geometry_gain"] / np.maximum(
             scores["estimated_raster_cost_s"], 1.0e-12
@@ -397,9 +395,9 @@ def run_v5_veer_slice_replay(
         scores["selected"] = scores["roi_id"] == str(selected["roi_id"])
         return selected, scores
 
-    for index in rng.choice(len(catalog), size=config.acquisition_v4.pilot_rois, replace=False):
+    for index in rng.choice(len(catalog), size=config.acquisition.pilot_rois, replace=False):
         reveal(catalog.iloc[int(index)], "random_pilot")
-    while len(metrics) < config.acquisition_v4.total_rois:
+    while len(metrics) < config.acquisition.total_rois:
         selected, scored = select()
         scored.insert(0, "fold", fold_id)
         scored.insert(1, "slice", slice_id)
@@ -407,7 +405,7 @@ def run_v5_veer_slice_replay(
         scored.insert(3, "query_index", len(metrics) + 1)
         candidate_frames.append(scored)
         reveal(selected, f"{policy}_adaptive")
-    return V5VeerSliceResult(*frames())
+    return VeerSliceResult(*frames())
 
 
 _BLAS_THREAD_VARIABLES = [
@@ -431,27 +429,27 @@ def _replay_worker(
     """Run one slice-policy replay in a worker process, writing checkpoint parts."""
 
     template = load_config(Path(template_path))
-    all_slices = _manifest_slice_ids(Path(manifest_path))
+    all_slices = manifest_slice_ids(Path(manifest_path))
     sources = sources_from_manifest(Path(manifest_path), all_slices, template.scenario.elements)
-    config = v3_config_for_slice(template, slice_id, sources[slice_id])
+    config = config_for_slice(template, slice_id, sources[slice_id])
     observations, _ = ingest_dataset(config)
     dense_signal, x, y, channels = dense_signal_from_observations(config, observations)
 
     def checkpoint(*values) -> None:
         for name, frame in zip(directories, values):
             if not frame.empty:
-                _write_checkpoint_part(
+                write_checkpoint_part(
                     frame,
-                    _checkpoint_part_path(Path(directories[name]), fold_id, slice_id, policy),
+                    checkpoint_part_path(Path(directories[name]), fold_id, slice_id, policy),
                 )
 
-    run_v5_veer_slice_replay(
+    run_veer_slice_replay(
         config, dense_signal, x, y, channels, slice_id, policy, fold_id, seed, checkpoint
     )
     return fold_id, slice_id, policy
 
 
-def run_v5_veer_stack_validation(
+def run_veer_stack_validation(
     template_path: Path,
     output: Path,
     manifest_path: Path,
@@ -462,35 +460,35 @@ def run_v5_veer_stack_validation(
     resume: bool = True,
     workers: int = 1,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Run blocked, resumable v5 VEER validation, optionally across worker processes."""
+    """Run blocked, resumable VEER validation, optionally across worker processes."""
 
     template = load_config(template_path)
-    all_slices = _manifest_slice_ids(manifest_path)
+    all_slices = manifest_slice_ids(manifest_path)
     requested = set(slice_ids or all_slices)
-    folds = build_v4_folds(all_slices, template)
+    folds = build_folds(all_slices, template)
     if fold_specification != "all":
         folds = [fold for fold in folds if fold.fold_id == f"fold_{int(fold_specification)}"]
-    policies = policies or V5_VEER_POLICIES
-    unknown = set(policies) - set(V5_VEER_POLICIES)
+    policies = policies or VEER_POLICIES
+    unknown = set(policies) - set(VEER_POLICIES)
     if unknown:
-        raise ValueError(f"unsupported v5 VEER policies: {sorted(unknown)}")
+        raise ValueError(f"unsupported VEER policies: {sorted(unknown)}")
     sources = sources_from_manifest(manifest_path, all_slices, template.scenario.elements)
     output.mkdir(parents=True, exist_ok=True)
     write_config(template, output / "resolved_template_config.yaml")
     directories = {
-        "metrics": output / "v5_veer_metrics_parts",
-        "candidate": output / "v5_veer_candidate_parts",
-        "variogram": output / "v5_veer_variogram_parts",
+        "metrics": output / "veer_metrics_parts",
+        "candidate": output / "veer_candidate_parts",
+        "variogram": output / "veer_variogram_parts",
     }
     frames = {
-        name: _read_checkpoint_frames(directory) if resume else []
+        name: read_checkpoint_frames(directory) if resume else []
         for name, directory in directories.items()
     }
-    metrics = _deduplicate_metrics(frames["metrics"])
-    candidates = _deduplicate_trace(frames["candidate"])
+    metrics = deduplicate_metrics(frames["metrics"])
+    candidates = deduplicate_trace(frames["candidate"])
     metric_complete = (
         set(
-            metrics[metrics["query_count"] >= template.acquisition_v4.total_rois][
+            metrics[metrics["query_count"] >= template.acquisition.total_rois][
                 ["fold", "slice", "policy"]
             ]
             .drop_duplicates()
@@ -538,7 +536,7 @@ def run_v5_veer_stack_validation(
                         future.result()
                         done += 1
                         if done % 10 == 0:
-                            print(f"Validated {done}/{len(tasks)} v5 VEER replays.")
+                            print(f"Validated {done}/{len(tasks)} VEER replays.")
         finally:
             for key, value in saved_environment.items():
                 if value is None:
@@ -546,7 +544,7 @@ def run_v5_veer_stack_validation(
                 else:
                     os.environ[key] = value
         frames = {
-            name: _read_checkpoint_frames(directory)
+            name: read_checkpoint_frames(directory)
             for name, directory in directories.items()
         }
     else:
@@ -554,7 +552,7 @@ def run_v5_veer_stack_validation(
         for fold in folds:
             tests = [slice_id for slice_id in fold.test_slices if slice_id in requested]
             for slice_id in tests:
-                config = v3_config_for_slice(template, slice_id, sources[slice_id])
+                config = config_for_slice(template, slice_id, sources[slice_id])
                 pending = [
                     policy
                     for policy in policies
@@ -568,14 +566,14 @@ def run_v5_veer_stack_validation(
                         def checkpoint(*values):
                             for name, frame in zip(directories, values):
                                 if not frame.empty:
-                                    _write_checkpoint_part(
+                                    write_checkpoint_part(
                                         frame,
-                                        _checkpoint_part_path(
+                                        checkpoint_part_path(
                                             directories[name], fold.fold_id, slice_id, policy
                                         ),
                                     )
 
-                        result = run_v5_veer_slice_replay(
+                        result = run_veer_slice_replay(
                             config,
                             dense_signal,
                             x,
@@ -597,27 +595,27 @@ def run_v5_veer_stack_validation(
                                 frames[name].append(frame)
                 processed += 1
                 if processed % 10 == 0:
-                    print(f"Validated v5 VEER reconstruction on {processed} requested slices.")
-    metrics = _deduplicate_metrics(frames["metrics"])
-    candidates = _deduplicate_trace(frames["candidate"])
+                    print(f"Validated VEER reconstruction on {processed} requested slices.")
+    metrics = deduplicate_metrics(frames["metrics"])
+    candidates = deduplicate_trace(frames["candidate"])
     variograms = _deduplicate_variogram(frames["variogram"])
-    summary, curves, auc = summarize_v4_metrics(metrics)
+    summary, curves, auc = summarize_metrics(metrics)
     final = metrics.sort_values("iteration").groupby(["fold", "slice", "policy"], sort=False).tail(1)
     comparisons = paired_morphology_comparisons(metrics, template)
     trailing = trailing_endpoint_summary(
-        metrics, template.acquisition_v5.trailing_window_iterations
+        metrics, template.variogram.trailing_window_iterations
     )
-    metrics.to_csv(output / "v5_veer_metrics_by_iteration.csv", index=False)
-    final.to_csv(output / "v5_veer_final_metrics_by_slice.csv", index=False)
-    summary.to_csv(output / "v5_veer_oof_summary.csv", index=False)
-    comparisons.to_csv(output / "v5_veer_paired_comparisons.csv", index=False)
-    curves.to_csv(output / "v5_veer_error_vs_cost_curves.csv", index=False)
-    auc.to_csv(output / "v5_veer_composite_error_auc_vs_cost.csv", index=False)
-    candidates.to_csv(output / "v5_veer_candidate_trace.csv", index=False)
-    variograms.to_csv(output / "v5_veer_variogram_trace.csv", index=False)
-    trailing.to_csv(output / "v5_veer_trailing_summary.csv", index=False)
+    metrics.to_csv(output / "veer_metrics_by_iteration.csv", index=False)
+    final.to_csv(output / "veer_final_metrics_by_slice.csv", index=False)
+    summary.to_csv(output / "veer_oof_summary.csv", index=False)
+    comparisons.to_csv(output / "veer_paired_comparisons.csv", index=False)
+    curves.to_csv(output / "veer_error_vs_cost_curves.csv", index=False)
+    auc.to_csv(output / "veer_composite_error_auc_vs_cost.csv", index=False)
+    candidates.to_csv(output / "veer_candidate_trace.csv", index=False)
+    variograms.to_csv(output / "veer_variogram_trace.csv", index=False)
+    trailing.to_csv(output / "veer_trailing_summary.csv", index=False)
     protocol = {
-        "schema": "balance_nm_v5_variogram_expected_error_reduction",
+        "schema": "balance_nm_variogram_expected_error_reduction",
         "template_config": str(template_path),
         "manifest": str(manifest_path),
         "seed": seed,
@@ -652,12 +650,12 @@ def run_v5_veer_stack_validation(
         "baseline_equivalence": "gamma(d) = d with uniform weights reproduces uncertainty_lookahead",
         "co_primary_endpoint": (
             "trailing-median composite over the final "
-            f"{template.acquisition_v5.trailing_window_iterations} reveals; pre-registered "
+            f"{template.variogram.trailing_window_iterations} reveals; pre-registered "
             "2026-06-11 after policy-agnostic endpoint-volatility diagnostics on the "
             "10-slice smoke, before any 30-slice gate run"
         ),
         "front_semantics": "frozen unsupervised alteration-front proxy; not expert-labeled corrosion truth",
     }
-    with (output / "v5_veer_fold_protocol.yaml").open("w", encoding="utf-8") as handle:
+    with (output / "veer_fold_protocol.yaml").open("w", encoding="utf-8") as handle:
         yaml.safe_dump(protocol, handle, sort_keys=False)
     return metrics, summary
