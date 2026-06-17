@@ -89,6 +89,10 @@ acquisition:
   penetration_d95_weight: 0.50
   rmse_regression_limit_fraction: 0.02
   excluded_channels: [CPS]
+  # Routing knobs for live deployment. Defaults reproduce the validated
+  # single-step, travel-blind results exactly.
+  batch_size: 1                 # >1 enables Kriging-believer batch + nearest-neighbor routing
+  travel_cost_ms_per_nm: 0.0    # >0 folds stage-travel time into the per-tile cost
   folds:
     outer_test_ranges: [[1, 53], [54, 106], [107, 159], [160, 212], [213, 265]]
     outer_guard_slices: 3

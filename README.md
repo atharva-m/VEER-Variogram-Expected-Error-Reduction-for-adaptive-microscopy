@@ -31,9 +31,11 @@ VEER is a goal-oriented active-acquisition framework that decides *where to poin
 | **Composite error** | ~0 (defines truth) | 0.137 | **0.113** |
 | **Relative improvement** | — | baseline | **−17.4 %** |
 | **Reconstruction RMSE** | — | baseline | **−1.7 %** (better) |
-| **Scan dose** | full | 1× | **1× (equal)** |
+| **Dwell / dose** | full | 1× | **1× (equal)** |
 
 </div>
+
+> **Scope of "equal cost".** Both policies spend the identical **dwell/dose budget** (same number of equal-size tiles), which is what the retrospective replay measures — not wall-clock including stage motion. A naive live port could pay extra mechanical latency by routing the stage inefficiently; VEER addresses this with optional **stage-travel-aware cost** and **batch routing** knobs (`acquisition.travel_cost_ms_per_nm`, `acquisition.batch_size`), off by default so the validated numbers are reproduced exactly.
 
 ---
 

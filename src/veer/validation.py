@@ -50,10 +50,13 @@ from .selection import (
     front_movement_fraction,
     front_probability_weights,
     front_relevance_weights,
+    nested_veer_candidate_scores,
     nested_veer_select_candidate,
     parse_nested_policy,
     parse_veer_policy,
+    plan_fantasized_batch,
     predicted_depth_profile,
+    veer_candidate_scores,
     veer_select_candidate,
 )
 from .variogram import (
@@ -261,6 +264,8 @@ def run_veer_slice_replay(
     nested_fit: NestedVariogramFit | None = None
     previous_depth: np.ndarray | None = None
     front_movement: float | None = None
+    last_center: tuple[float, float] | None = None
+    travel_lambda = config.acquisition.travel_cost_ms_per_nm
     reference = pseudo_reference_from_dense_signal(dense_signal, x, y, channels, config)
     prediction = reconstruct_from_observed_mask(dense_signal, observed_mask, x, y, channels, config)
 
@@ -277,11 +282,12 @@ def run_veer_slice_replay(
 
     def reveal(roi: pd.Series, stage: str) -> None:
         nonlocal consumed_time_s, consumed_dose, prediction, posterior, nested_fit
-        nonlocal previous_depth, front_movement
+        nonlocal previous_depth, front_movement, last_center
         row0, row1 = int(roi["row0"]), int(roi["row1"])
         column0, column1 = int(roi["column0"]), int(roi["column1"])
         observed_mask[row0:row1, column0:column1] = True
         queried_ids.add(str(roi["roi_id"]))
+        last_center = (float(roi["center_x_nm"]), float(roi["center_y_nm"]))
         time_s, dose = raster_cost(config, roi)
         consumed_time_s += time_s
         consumed_dose += dose
@@ -344,7 +350,7 @@ def run_veer_slice_replay(
                 pixel_weights = front_probability_weights(prediction, nested.front_kappa)
             selected, scored = nested_veer_select_candidate(
                 catalog, queried_ids, observed_mask, nested_fit, pixel_weights, x, y, config,
-                rectangle_cache,
+                rectangle_cache, last_center, travel_lambda,
             )
             scored["front_kappa"] = nested.front_kappa
             return selected, scored
@@ -365,7 +371,7 @@ def run_veer_slice_replay(
             pixel_weights = front_relevance_weights(prediction, x, y, config, effective_kappa)
             selected, scored = veer_select_candidate(
                 catalog, queried_ids, observed_mask, posterior, pixel_weights, x, y, config,
-                rectangle_cache,
+                rectangle_cache, last_center, travel_lambda,
             )
             scored["front_kappa"] = spec.front_kappa
             if spec.gated:
@@ -378,14 +384,21 @@ def run_veer_slice_replay(
         scores = catalog[~catalog["roi_id"].isin(queried_ids)].copy()
         if scores.empty:
             raise ValueError("no feasible raster candidates remain")
-        scores["geometry_gain"] = [
-            lookahead_coverage_gain(distance_field, roi) for _, roi in scores.iterrows()
-        ]
-        scores["estimated_raster_cost_s"] = [
-            raster_cost(config, roi)[0] for _, roi in scores.iterrows()
-        ]
+        records = scores.to_dict("records")
+        scores["geometry_gain"] = [lookahead_coverage_gain(distance_field, roi) for roi in records]
+        raster_costs = np.asarray([raster_cost(config, roi)[0] for roi in records], dtype=float)
+        if last_center is None:
+            travel = np.zeros(len(records), dtype=float)
+        else:
+            travel = np.asarray(
+                [float(np.hypot(roi["center_x_nm"] - last_center[0], roi["center_y_nm"] - last_center[1])) for roi in records],
+                dtype=float,
+            )
+        scores["estimated_raster_cost_s"] = raster_costs
+        scores["travel_distance_nm"] = travel
+        scores["total_cost_s"] = raster_costs + travel_lambda * travel / 1000.0
         scores["geometry_gain_per_cost"] = scores["geometry_gain"] / np.maximum(
-            scores["estimated_raster_cost_s"], 1.0e-12
+            scores["total_cost_s"], 1.0e-12
         )
         scores["selection_utility"] = scores["geometry_gain_per_cost"]
         selected = scores.sort_values(
@@ -395,16 +408,103 @@ def run_veer_slice_replay(
         scores["selected"] = scores["roi_id"] == str(selected["roi_id"])
         return selected, scores
 
-    for index in rng.choice(len(catalog), size=config.acquisition.pilot_rois, replace=False):
-        reveal(catalog.iloc[int(index)], "random_pilot")
-    while len(metrics) < config.acquisition.total_rois:
-        selected, scored = select()
+    def frozen_score_fn():
+        """A value-independent candidate scorer over a working mask for batch fantasizing.
+
+        Front weights and the fitted variogram are frozen at the pre-batch state
+        (the Kriging-believer approximation); only the observation geometry, which
+        is all the expected-error reduction depends on, advances within the batch.
+        """
+
+        if nested is not None:
+            if nested_fit is None:
+                raise ValueError("v5.1 nested policies require a fitted nested variogram")
+            weights = (
+                front_relevance_weights(prediction, x, y, config, nested.front_kappa)
+                if nested.weight_mode == "band"
+                else front_probability_weights(prediction, nested.front_kappa)
+            )
+
+            def score(working_mask, working_queried):
+                scored = nested_veer_candidate_scores(
+                    catalog, working_queried, working_mask, nested_fit, weights, x, y, config,
+                    rectangle_cache,
+                )
+                scored["front_kappa"] = nested.front_kappa
+                return scored
+
+            return score
+        if spec is not None:
+            if posterior is None:
+                raise ValueError("VEER policies require a fitted variogram posterior")
+            effective_kappa = spec.front_kappa
+            if spec.gated:
+                instability = (
+                    1.0
+                    if front_movement is None
+                    else min(1.0, front_movement / config.variogram.front_gate_movement_fraction)
+                )
+                effective_kappa = spec.front_kappa * instability
+            weights = front_relevance_weights(prediction, x, y, config, effective_kappa)
+
+            def score(working_mask, working_queried):
+                scored = veer_candidate_scores(
+                    catalog, working_queried, working_mask, posterior, weights, x, y, config,
+                    rectangle_cache,
+                )
+                scored["front_kappa"] = spec.front_kappa
+                if spec.gated:
+                    scored["front_kappa_effective"] = effective_kappa
+                    scored["front_movement_fraction"] = (
+                        np.nan if front_movement is None else front_movement
+                    )
+                return scored
+
+            return score
+
+        def score(working_mask, working_queried):
+            field = distance_pixels(working_mask)
+            scores = catalog[~catalog["roi_id"].isin(working_queried)].copy()
+            records = scores.to_dict("records")
+            scores["geometry_gain"] = [lookahead_coverage_gain(field, roi) for roi in records]
+            raster_costs = np.asarray([raster_cost(config, roi)[0] for roi in records], dtype=float)
+            scores["estimated_raster_cost_s"] = raster_costs
+            scores["total_cost_s"] = raster_costs
+            scores["geometry_gain_per_cost"] = scores["geometry_gain"] / np.maximum(
+                raster_costs, 1.0e-12
+            )
+            scores["selection_utility"] = scores["geometry_gain_per_cost"]
+            return scores
+
+        return score
+
+    def record_and_reveal(selected, scored, stage) -> None:
         scored.insert(0, "fold", fold_id)
         scored.insert(1, "slice", slice_id)
         scored.insert(2, "policy", policy)
         scored.insert(3, "query_index", len(metrics) + 1)
         candidate_frames.append(scored)
-        reveal(selected, f"{policy}_adaptive")
+        reveal(selected, stage)
+
+    for index in rng.choice(len(catalog), size=config.acquisition.pilot_rois, replace=False):
+        reveal(catalog.iloc[int(index)], "random_pilot")
+    batch_size = config.acquisition.batch_size
+    while len(metrics) < config.acquisition.total_rois:
+        if batch_size == 1:
+            selected, scored = select()
+            record_and_reveal(selected, scored, f"{policy}_adaptive")
+        else:
+            remaining = config.acquisition.total_rois - len(metrics)
+            batch = plan_fantasized_batch(
+                frozen_score_fn(),
+                observed_mask,
+                queried_ids,
+                len(catalog),
+                min(batch_size, remaining),
+                last_center,
+            )
+            for selected, scored in batch:
+                record_and_reveal(selected, scored, f"{policy}_adaptive_batch")
     return VeerSliceResult(*frames())
 
 

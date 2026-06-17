@@ -235,6 +235,10 @@ class AcquisitionConfig(DomainModel):
     rmse_regression_limit_fraction: float = Field(default=0.02, ge=0.0)
     excluded_channels: list[str] = Field(default_factory=lambda: ["CPS"])
     folds: FoldConfig = Field(default_factory=FoldConfig)
+    # Deployment-oriented routing knobs. Defaults reproduce the validated
+    # single-step, travel-blind behavior exactly (batch_size=1, travel cost=0).
+    batch_size: int = Field(default=1, ge=1)
+    travel_cost_ms_per_nm: float = Field(default=0.0, ge=0.0)
 
     @model_validator(mode="after")
     def validate_acquisition(self) -> "AcquisitionConfig":

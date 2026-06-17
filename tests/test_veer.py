@@ -24,10 +24,13 @@ from veer import (
     kernel_distance_field,
     kernel_rectangle_distance,
     lookahead_coverage_gain,
+    nearest_neighbor_route,
+    nested_veer_candidate_scores,
     nested_veer_select_candidate,
     normalized_reconstruction_rmse,
     parse_nested_policy,
     parse_veer_policy,
+    plan_fantasized_batch,
     reconstruct_from_observed_mask,
     run_veer_slice_replay,
 )
@@ -517,3 +520,83 @@ def test_veer_cli_resume_does_not_duplicate_work_or_emit_v4_fields(small_config,
     assert protocol["pilot_seeding"].startswith("default_rng([seed, slice])")
     assert protocol["nested_variogram"].startswith("v5.1 arms fit gamma")
     assert protocol["co_primary_endpoint"].startswith("trailing-median")
+
+
+def _linear_fit():
+    return NestedVariogramFit(
+        nugget=0.0, matern_amplitude=0.0, linear_slope=1.0, length_scale=0.1,
+        weighted_sse=0.0, bin_distances=np.empty(0), bin_semivariances=np.empty(0),
+        bin_pair_counts=np.empty(0), subtile_count=0,
+    )
+
+
+def test_nearest_neighbor_route_orders_greedily():
+    centers = [(0.0, 0.0), (10.0, 0.0), (3.0, 0.0), (7.0, 0.0)]
+    order = nearest_neighbor_route(centers, start=(0.0, 0.0))
+    assert order == [0, 2, 3, 1]
+    assert nearest_neighbor_route([], None) == []
+    assert nearest_neighbor_route([(5.0, 5.0)], None) == [0]
+
+
+def test_travel_penalty_is_inert_at_zero_and_penalizes_distance(small_config, tmp_path: Path):
+    source = tmp_path / "dense.zarr"
+    _write_dense_source(source, _signal())
+    config = _config(small_config, source)
+    x, y = _grid()
+    catalog = build_roi_catalog(x, y, (8, 8))
+    mask = np.zeros((24, 24), dtype=bool)
+    weights = np.ones((24, 24))
+    queried = {"r0000_c0000"}
+    fit = _linear_fit()
+    base = nested_veer_candidate_scores(catalog, queried, mask, fit, weights, x, y, config)
+    assert np.allclose(base["total_cost_s"], base["estimated_raster_cost_s"])
+    last_center = (float(x[0]), float(y[0]))
+    penalized = nested_veer_candidate_scores(
+        catalog, queried, mask, fit, weights, x, y, config,
+        last_center=last_center, travel_cost_ms_per_nm=10.0,
+    )
+    # travel-blind cost is unchanged; total cost now grows with distance from last_center
+    assert np.allclose(penalized["estimated_raster_cost_s"], base["estimated_raster_cost_s"])
+    assert (penalized["total_cost_s"] >= penalized["estimated_raster_cost_s"] - 1e-12).all()
+    far = penalized.sort_values("travel_distance_nm").iloc[-1]
+    assert far["total_cost_s"] > far["estimated_raster_cost_s"]
+
+
+def test_fantasized_batch_is_distinct_and_routed(small_config, tmp_path: Path):
+    source = tmp_path / "dense.zarr"
+    _write_dense_source(source, _signal())
+    config = _config(small_config, source)
+    x, y = _grid()
+    catalog = build_roi_catalog(x, y, (8, 8))
+    mask = np.zeros((24, 24), dtype=bool)
+    mask[:8, :8] = True
+    weights = np.ones((24, 24))
+    fit = _linear_fit()
+
+    def score_fn(working_mask, working_queried):
+        return nested_veer_candidate_scores(
+            catalog, working_queried, working_mask, fit, weights, x, y, config
+        )
+
+    batch = plan_fantasized_batch(score_fn, mask, {"r0000_c0000"}, len(catalog), 4, last_center=None)
+    roi_ids = [str(sel["roi_id"]) for sel, _ in batch]
+    assert len(batch) == 4
+    assert len(set(roi_ids)) == 4  # non-redundant
+    assert all("selected" in scored.columns for _, scored in batch)
+
+
+def test_batched_replay_yields_full_distinct_budget(small_config, tmp_path: Path):
+    source = tmp_path / "dense.zarr"
+    signal = _signal()
+    _write_dense_source(source, signal)
+    config = _config(small_config, source, total_rois=6)
+    config = config.model_copy(
+        update={"acquisition": config.acquisition.model_copy(update={"batch_size": 3})}
+    )
+    x, y = _grid()
+    result = run_veer_slice_replay(
+        config, signal, x, y, ["Cr", "Ni"], "001", "gated_veer_4x4_mean_kappa5", seed=3
+    )
+    assert len(result.metrics) == 6
+    assert result.metrics["roi_id"].nunique() == 6  # no tile revealed twice across batches
+    assert (result.candidate_trace["stage"].str.contains("batch")).any() if "stage" in result.candidate_trace.columns else True

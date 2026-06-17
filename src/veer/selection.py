@@ -223,6 +223,34 @@ def _cached_rectangle_distance(
     return rectangle
 
 
+def _travel_costs(
+    records: list[dict],
+    raster_costs: np.ndarray,
+    last_center: tuple[float, float] | None,
+    travel_cost_ms_per_nm: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Stage-travel distance (nm) and routing-aware total cost (s) per candidate.
+
+    With travel_cost_ms_per_nm == 0 (the default) the total cost equals the
+    dwell/dose raster cost exactly, so selection is unchanged. A positive value
+    folds Euclidean stage travel from the last revealed tile into the cost,
+    discouraging the policy from thrashing the stage across the specimen.
+    """
+
+    if last_center is None:
+        travel = np.zeros(len(records), dtype=float)
+    else:
+        travel = np.asarray(
+            [
+                float(np.hypot(roi["center_x_nm"] - last_center[0], roi["center_y_nm"] - last_center[1]))
+                for roi in records
+            ],
+            dtype=float,
+        )
+    total = raster_costs + travel_cost_ms_per_nm * travel / 1000.0
+    return travel, total
+
+
 def nested_veer_candidate_scores(
     catalog: pd.DataFrame,
     queried_ids: set[str],
@@ -233,6 +261,8 @@ def nested_veer_candidate_scores(
     y: np.ndarray,
     config: RunConfig,
     rectangle_cache: dict | None = None,
+    last_center: tuple[float, float] | None = None,
+    travel_cost_ms_per_nm: float = 0.0,
 ) -> pd.DataFrame:
     """Score candidates by expected error reduction under the nested variogram.
 
@@ -247,22 +277,26 @@ def nested_veer_candidate_scores(
     weight_total = max(float(np.sum(pixel_weights)), 1.0e-12)
     distance = kernel_distance_field(observed_mask, x, y, config, (1.0, 1.0))
     gamma_current = gamma_nested(distance, fit)
-    reductions = np.zeros(len(candidates), dtype=float)
-    for position, (_, roi) in enumerate(candidates.iterrows()):
+    records = candidates.to_dict("records")
+    reductions = np.zeros(len(records), dtype=float)
+    raster_costs = np.zeros(len(records), dtype=float)
+    for position, roi in enumerate(records):
         rectangle = _cached_rectangle_distance(
             rectangle_cache, roi, observed_mask.shape, x, y, config, (1.0, 1.0)
         )
+        raster_costs[position] = raster_cost(config, roi)[0]
         closer = rectangle < distance
         if not np.any(closer):
             continue
         gain = gamma_current[closer] - gamma_nested(rectangle[closer], fit)
         reductions[position] = float(np.sum(pixel_weights[closer] * gain))
+    travel, total_cost = _travel_costs(records, raster_costs, last_center, travel_cost_ms_per_nm)
     candidates["expected_error_reduction"] = reductions / weight_total
-    candidates["estimated_raster_cost_s"] = [
-        raster_cost(config, roi)[0] for _, roi in candidates.iterrows()
-    ]
+    candidates["estimated_raster_cost_s"] = raster_costs
+    candidates["travel_distance_nm"] = travel
+    candidates["total_cost_s"] = total_cost
     candidates["eer_per_cost"] = candidates["expected_error_reduction"] / np.maximum(
-        candidates["estimated_raster_cost_s"], 1.0e-12
+        candidates["total_cost_s"], 1.0e-12
     )
     candidates["selection_utility"] = candidates["eer_per_cost"]
     candidates["nested_length_scale"] = fit.length_scale
@@ -282,9 +316,12 @@ def nested_veer_select_candidate(
     y: np.ndarray,
     config: RunConfig,
     rectangle_cache: dict | None = None,
+    last_center: tuple[float, float] | None = None,
+    travel_cost_ms_per_nm: float = 0.0,
 ) -> tuple[pd.Series, pd.DataFrame]:
     scored = nested_veer_candidate_scores(
-        catalog, queried_ids, observed_mask, fit, pixel_weights, x, y, config, rectangle_cache
+        catalog, queried_ids, observed_mask, fit, pixel_weights, x, y, config,
+        rectangle_cache, last_center, travel_cost_ms_per_nm,
     )
     selected = scored.sort_values(
         ["selection_utility", "row0", "column0"],
@@ -304,6 +341,8 @@ def veer_candidate_scores(
     y: np.ndarray,
     config: RunConfig,
     rectangle_cache: dict | None = None,
+    last_center: tuple[float, float] | None = None,
+    travel_cost_ms_per_nm: float = 0.0,
 ) -> pd.DataFrame:
     """Score candidates by model-averaged front-weighted expected error reduction."""
 
@@ -311,11 +350,12 @@ def veer_candidate_scores(
     if candidates.empty:
         raise ValueError("no feasible v5 raster candidates remain")
     weight_total = max(float(np.sum(pixel_weights)), 1.0e-12)
-    reductions = np.zeros(len(candidates), dtype=float)
+    records = candidates.to_dict("records")
+    reductions = np.zeros(len(records), dtype=float)
     for weight, length_scales in zip(posterior.weights, posterior.kernel_length_scales):
         distance = kernel_distance_field(observed_mask, x, y, config, length_scales)
         current_correlation = matern_3_2_correlation(distance)
-        for position, (_, roi) in enumerate(candidates.iterrows()):
+        for position, roi in enumerate(records):
             rectangle = _cached_rectangle_distance(
                 rectangle_cache, roi, observed_mask.shape, x, y, config, length_scales
             )
@@ -326,14 +366,16 @@ def veer_candidate_scores(
             reductions[position] += weight * float(
                 np.sum(pixel_weights[closer] * gain)
             )
+    raster_costs = np.asarray([raster_cost(config, roi)[0] for roi in records], dtype=float)
+    travel, total_cost = _travel_costs(records, raster_costs, last_center, travel_cost_ms_per_nm)
     candidates["expected_error_reduction"] = (
         posterior.sill * reductions / weight_total
     )
-    candidates["estimated_raster_cost_s"] = [
-        raster_cost(config, roi)[0] for _, roi in candidates.iterrows()
-    ]
+    candidates["estimated_raster_cost_s"] = raster_costs
+    candidates["travel_distance_nm"] = travel
+    candidates["total_cost_s"] = total_cost
     candidates["eer_per_cost"] = candidates["expected_error_reduction"] / np.maximum(
-        candidates["estimated_raster_cost_s"], 1.0e-12
+        candidates["total_cost_s"], 1.0e-12
     )
     candidates["selection_utility"] = candidates["eer_per_cost"]
     candidates["variogram_sill"] = posterior.sill
@@ -352,9 +394,12 @@ def veer_select_candidate(
     y: np.ndarray,
     config: RunConfig,
     rectangle_cache: dict | None = None,
+    last_center: tuple[float, float] | None = None,
+    travel_cost_ms_per_nm: float = 0.0,
 ) -> tuple[pd.Series, pd.DataFrame]:
     scored = veer_candidate_scores(
-        catalog, queried_ids, observed_mask, posterior, pixel_weights, x, y, config, rectangle_cache
+        catalog, queried_ids, observed_mask, posterior, pixel_weights, x, y, config,
+        rectangle_cache, last_center, travel_cost_ms_per_nm,
     )
     selected = scored.sort_values(
         ["selection_utility", "row0", "column0"],
@@ -362,3 +407,65 @@ def veer_select_candidate(
     ).iloc[0]
     scored["selected"] = scored["roi_id"] == str(selected["roi_id"])
     return selected, scored
+
+
+def nearest_neighbor_route(
+    centers: list[tuple[float, float]], start: tuple[float, float] | None
+) -> list[int]:
+    """Greedy nearest-neighbor visiting order through `centers` from `start`."""
+
+    remaining = list(range(len(centers)))
+    order: list[int] = []
+    current = start
+    while remaining:
+        if current is None:
+            nxt = remaining[0]
+        else:
+            nxt = min(
+                remaining,
+                key=lambda i: (centers[i][0] - current[0]) ** 2 + (centers[i][1] - current[1]) ** 2,
+            )
+        order.append(nxt)
+        remaining.remove(nxt)
+        current = centers[nxt]
+    return order
+
+
+def plan_fantasized_batch(
+    score_fn,
+    observed_mask: np.ndarray,
+    queried_ids: set[str],
+    catalog_size: int,
+    batch_size: int,
+    last_center: tuple[float, float] | None,
+) -> list[tuple[pd.Series, pd.DataFrame]]:
+    """Select a non-redundant batch by the Kriging-believer heuristic, then route it.
+
+    Because the variogram expected-error reduction depends only on observation
+    *coordinates* (not measured values), each provisional pick can be folded into
+    a working mask and the batch re-scored without revealing any data. The chosen
+    tiles are then ordered by a nearest-neighbor route to minimize stage travel.
+    """
+
+    working = observed_mask.copy()
+    working_queried = set(queried_ids)
+    picked: list[tuple[pd.Series, pd.DataFrame]] = []
+    for _ in range(batch_size):
+        if len(working_queried) >= catalog_size:
+            break
+        scored = score_fn(working, working_queried)
+        selected = scored.sort_values(
+            ["selection_utility", "row0", "column0"],
+            ascending=[False, True, True],
+        ).iloc[0]
+        scored = scored.copy()
+        scored["selected"] = scored["roi_id"] == str(selected["roi_id"])
+        picked.append((selected, scored))
+        working[
+            int(selected["row0"]) : int(selected["row1"]),
+            int(selected["column0"]) : int(selected["column1"]),
+        ] = True
+        working_queried.add(str(selected["roi_id"]))
+    centers = [(float(s["center_x_nm"]), float(s["center_y_nm"])) for s, _ in picked]
+    order = nearest_neighbor_route(centers, last_center)
+    return [picked[i] for i in order]
