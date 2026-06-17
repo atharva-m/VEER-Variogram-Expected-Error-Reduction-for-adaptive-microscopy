@@ -172,7 +172,7 @@ maximum slice composite regression <= 0.02
 ## 8. Commands
 
 ```powershell
-.\.venv\Scripts\python.exe -m balance_nm validate-veer-stack `
+.\.venv\Scripts\python.exe -m veer validate-veer-stack `
   --config configs\alloy617_v5_veer.yaml `
   --manifest data\alloy617_nrds\full_stack_download_manifest.csv `
   --fold all `

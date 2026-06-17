@@ -1,4 +1,4 @@
-"""Command-line interface for BALANCE-NM variogram expected-error-reduction replay."""
+"""Command-line interface for VEER variogram expected-error-reduction replay."""
 
 from __future__ import annotations
 

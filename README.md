@@ -1,6 +1,6 @@
-# BALANCE-NM
+# VEER
 
-BALANCE-NM is a retrospective replay framework for **uncertainty-guided
+VEER is a retrospective replay framework for **uncertainty-guided
 adaptive raster selection** on unannotated multichannel Alloy 617
 corrosion-morphology maps. It answers one question:
 
@@ -45,7 +45,7 @@ documented in [docs/DESIGN.md](docs/DESIGN.md).
 ## Layout
 
 ```text
-src/balance_nm/
+src/veer/
   domain.py        # pydantic config models (RunConfig, AcquisitionConfig, VariogramConfig)
   data.py          # dataset ingestion (binary element maps, zarr)
   io.py            # config load/save
@@ -55,7 +55,7 @@ src/balance_nm/
   variogram.py     # calibrated model-averaged + nested WLS variogram estimation
   selection.py     # VEER candidate scoring and front weighting
   validation.py    # resumable, parallel stack validation and endpoints
-  cli.py           # `balance-nm validate-veer-stack`
+  cli.py           # `veer validate-veer-stack`
 configs/alloy617_veer.yaml
 tests/test_veer.py
 docs/DESIGN.md
@@ -74,7 +74,7 @@ so, add `--basetemp=.pytest_tmp`.)
 ## Run
 
 ```powershell
-.\.venv\Scripts\python.exe -m balance_nm validate-veer-stack `
+.\.venv\Scripts\python.exe -m veer validate-veer-stack `
   --config configs\alloy617_veer.yaml `
   --manifest data\alloy617_nrds\full_stack_download_manifest.csv `
   --fold all `

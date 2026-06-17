@@ -37,9 +37,9 @@ resampling). The EBSD metadata gives native spacing of `100.0 nm` in X and
 `86.6 nm` in Y. The SEM and EDS renderings are not pixel-aligned and require
 registered multimodal handling.
 
-## BALANCE-NM Use
+## VEER Use
 
-This subset is now a runnable multi-element BALANCE-NM replay source through
+This subset is now a runnable multi-element VEER replay source through
 `configs/alloy617_multielement_replay.yaml`. The replay uses the numeric DAT
 payloads, not the color previews, with multi-objective gradient, anomaly,
 clustering, and inclusion interest maps. Because response-factor calibration

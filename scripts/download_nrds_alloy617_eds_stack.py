@@ -27,7 +27,7 @@ DOWNLOAD_RE = re.compile(r'href="([^"]+/download/[^"]+\.dat)"', re.IGNORECASE)
 
 
 def fetch_text(url: str) -> str:
-    request = Request(url, headers={"User-Agent": "BALANCE-NM research download/0.2"})
+    request = Request(url, headers={"User-Agent": "VEER research download/0.2"})
     with urlopen(request, timeout=120) as response:
         return response.read().decode("utf-8", errors="replace")
 
@@ -93,7 +93,7 @@ def download(record: dict[str, str], retries: int = 3) -> dict[str, str | int]:
             try:
                 request = Request(
                     record["source_url"],
-                    headers={"User-Agent": "BALANCE-NM research download/0.2"},
+                    headers={"User-Agent": "VEER research download/0.2"},
                 )
                 with urlopen(request, timeout=180) as response, temporary.open("wb") as output:
                     while chunk := response.read(1024 * 1024):

@@ -1,4 +1,4 @@
-"""BALANCE-NM: variogram expected-error-reduction (VEER) adaptive raster selection."""
+"""VEER: variogram expected-error-reduction (VEER) adaptive raster selection."""
 
 from .domain import RunConfig
 from .features import (

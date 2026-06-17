@@ -7,10 +7,10 @@ import xarray as xr
 import yaml
 from typer.testing import CliRunner
 
-from balance_nm.cli import app
-from balance_nm.domain import RunConfig
-from balance_nm.io import write_config
-from balance_nm import (
+from veer.cli import app
+from veer.domain import RunConfig
+from veer.io import write_config
+from veer import (
     NestedVariogramFit,
     SubtileObservation,
     build_roi_catalog,
@@ -424,7 +424,7 @@ def test_gated_replay_shuts_off_front_weighting_when_front_is_static(small_confi
 
 
 def test_parallel_workers_produce_identical_results_to_serial(small_config, tmp_path: Path):
-    from balance_nm import run_veer_stack_validation
+    from veer import run_veer_stack_validation
 
     source = tmp_path / "dense.zarr"
     _write_dense_source(source, _signal())

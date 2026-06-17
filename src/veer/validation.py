@@ -615,7 +615,7 @@ def run_veer_stack_validation(
     variograms.to_csv(output / "veer_variogram_trace.csv", index=False)
     trailing.to_csv(output / "veer_trailing_summary.csv", index=False)
     protocol = {
-        "schema": "balance_nm_variogram_expected_error_reduction",
+        "schema": "veer_variogram_expected_error_reduction",
         "template_config": str(template_path),
         "manifest": str(manifest_path),
         "seed": seed,

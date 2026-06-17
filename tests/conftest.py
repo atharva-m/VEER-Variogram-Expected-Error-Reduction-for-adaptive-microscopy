@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from balance_nm.io import load_config
+from veer.io import load_config
 
 
 @pytest.fixture()
