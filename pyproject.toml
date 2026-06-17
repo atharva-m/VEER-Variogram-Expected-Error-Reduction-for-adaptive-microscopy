@@ -7,6 +7,7 @@ name = "veer"
 version = "0.3.0"
 description = "Variogram expected-error-reduction (VEER) adaptive raster selection for SEM-EDS corrosion-morphology replay."
 readme = "README.md"
+license = "CC-BY-4.0"
 requires-python = ">=3.11"
 dependencies = [
   "h5py>=3.10",

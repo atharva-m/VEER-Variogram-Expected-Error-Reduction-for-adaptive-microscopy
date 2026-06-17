@@ -188,9 +188,19 @@ The acquisition policy is **fully interpretable** — model-averaged Matérn-3/2
 
 ---
 
-## 💾 Data
+## 💾 Data & credit
 
-The retained dataset is the public **INL NRDS Alloy 617** EDS serial-section stack (Alloy 617 / Inconel 617 corroded in NaCl–MgCl₂ molten salt at 700 °C for 1000 h; FIB tomography; 265 sections; 15 elemental channels; **CC BY 4.0**). Bulk binary maps are not version-controlled — manifests, provenance, and the downloader (`scripts/`) are. See [`data/alloy617_nrds/README.md`](data/alloy617_nrds/README.md). DOI: [10.48806/2287679](https://doi.org/10.48806/2287679).
+This work is built entirely on a public dataset produced by other researchers. All credit for the underlying measurements goes to its authors:
+
+> **Trishelle M. Copeland-Johnson, Daniel J. Murray, Guoping Cao, and Lingfeng He** — *Focused Ion Beam Tomography of Alloy 617 Corroded in Molten Chloride Salt*, Idaho National Laboratory / NSUF Nuclear Reactor Data System (NRDS). DOI: [10.48806/2287679](https://doi.org/10.48806/2287679). Licensed **CC BY 4.0**.
+>
+> Companion publication: Copeland-Johnson, Murray, Cao & He, *Assessing the interfacial corrosion mechanism of Inconel 617 in chloride molten salt corrosion using multi-modal advanced characterization techniques*, **Frontiers in Nuclear Engineering** (2022), DOI: [10.3389/fnuen.2022.1049693](https://doi.org/10.3389/fnuen.2022.1049693).
+
+The stack is Alloy 617 / Inconel 617 corroded in NaCl–MgCl₂ molten salt at 700 °C for 1000 h (FIB tomography; 265 sections; 15 elemental channels). Bulk binary maps are not version-controlled — only manifests, provenance, and the downloader (`scripts/`) are. See [`data/alloy617_nrds/README.md`](data/alloy617_nrds/README.md). If you use this repository, please cite the dataset DOI and the companion publication above.
+
+## 📜 License
+
+The VEER source code is released under **Creative Commons Attribution 4.0 International (CC BY 4.0)** — you are free to use, modify, and redistribute it, including commercially, with attribution. See [`LICENSE`](LICENSE). The bundled dataset is separately licensed CC BY 4.0 by its authors (above).
 
 ---
 
