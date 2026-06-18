@@ -25,6 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8.0"]
+viz = ["matplotlib>=3.8"]
 
 [project.scripts]
 veer = "veer.cli:app"

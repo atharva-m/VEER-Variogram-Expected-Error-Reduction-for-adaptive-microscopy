@@ -17,6 +17,14 @@ VEER is a goal-oriented active-acquisition framework that decides *where to poin
 
 </div>
 
+<div align="center">
+
+<img src="assets/veer_acquisition.gif" width="100%" alt="Animated comparison: the frozen proxy front, the coverage baseline, and VEER each revealing tiles and reconstructing the corrosion front on slice 032." />
+
+<em>Slice 032, in slow motion. <b>Left:</b> the dense slice and its frozen proxy front (red). <b>Middle:</b> the coverage baseline reveals tiles and reconstructs the front (blue). <b>Right:</b> VEER. Both scan the same ~26% of the field; VEER concentrates near the front and its prediction (green) locks onto the truth (final composite error 0.029 vs the baseline's 0.247).</em>
+
+</div>
+
 ---
 
 ## ✨ The headline
@@ -180,7 +188,11 @@ src/veer/
 ├── validation.py    # resumable, parallel stack validation + endpoints
 └── cli.py           # `veer validate-veer-stack`
 configs/alloy617_veer.yaml     tests/test_veer.py     docs/DESIGN.md
+scripts/render_acquisition_gif.py   # regenerates the animation above
 ```
+
+Regenerate the animation with `pip install -e ".[viz]"` then
+`python scripts/render_acquisition_gif.py --slice 032`.
 
 ---
 
